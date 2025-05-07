@@ -24,7 +24,7 @@ if API_KEY is None:
 parser = argparse.ArgumentParser(description="Compute route and export as GPX.")
 parser.add_argument("origin", help="Start location (address or lat,lng).")
 parser.add_argument("destination", help="End location (address or lat,lng).")
-parser.add_argument("mode", choices=["DRIVE", "TRANSIT"], help="Travel mode.")
+parser.add_argument("mode", choices=["DRIVE", "TRANSIT", "BICYCLE", "WALK"], help="Travel mode.")
 args = parser.parse_args()
 
 # Google Routes API endpoint
@@ -36,6 +36,7 @@ headers = {
     "X-Goog-FieldMask": "routes.polyline",
 }
 
+# docs at https://developers.google.com/maps/documentation/routes/reference/rest/v2/TopLevel/computeRoutes#request-body
 payload = {
     "origin": {"address": args.origin},
     "destination": {"address": args.destination},
