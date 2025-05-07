@@ -40,6 +40,9 @@ payload = {
     "origin": {"address": args.origin},
     "destination": {"address": args.destination},
     "travelMode": args.mode,
+    # "routeModifiers": {
+    #     "avoidHighways": True
+    # },
     # "routingPreference": "TRAFFIC_AWARE",
     "polylineQuality": "HIGH_QUALITY",
 }

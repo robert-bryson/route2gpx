@@ -174,3 +174,4 @@ cython_debug/
 .pypirc
 
 *route*.gpx
+.DS_Store
