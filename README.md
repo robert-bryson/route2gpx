@@ -8,14 +8,13 @@ A simple Python CLI tool that retrieves routes from Google Routes API (Compute R
 - Retrieves routes using Google's modern Routes API.
 - Supports driving and transit (including train routes).
 - Exports routes to GPX format with dummy timestamps and elevation data.
-- Generates filesystem-safe filenames automatically.
 
 ## Installation
 
 **Requirements:**
 - Python
 - Poetry
-- Google Cloud project with Routes API enabled
+- Google Cloud project with [Routes API enabled](https://console.cloud.google.com/apis/library/routes.googleapis.com)
 
 ### Setup
 

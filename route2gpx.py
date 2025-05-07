@@ -7,7 +7,7 @@ This script retrieves a route using the Google Routes API and exports it as a GP
 import argparse
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 import polyline
 import requests
@@ -63,7 +63,7 @@ except (KeyError, IndexError):
 coordinates = polyline.decode(encoded_polyline)
 
 # Generate GPX content
-start_time = datetime.utcnow()
+start_time = datetime.now(UTC)
 
 gpx_lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
