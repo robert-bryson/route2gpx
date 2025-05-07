@@ -1,0 +1,26 @@
+[project]
+name = "route2gpx"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "robert-bryson",email = "rsmbryson@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "requests (>=2.32.3,<3.0.0)",
+    "argparse (>=1.4.0,<2.0.0)",
+    "python-dotenv (>=1.1.0,<2.0.0)",
+    "polyline (>=2.0.2,<3.0.0)"
+]
+
+[tool.poetry]
+
+[tool.poetry.group.dev.dependencies]
+black = "^25.1.0"
+isort = "^6.0.1"
+pytest = "^8.3.5"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
