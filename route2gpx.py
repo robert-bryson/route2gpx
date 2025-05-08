@@ -3,11 +3,11 @@
 Google Routes API to GPX Converter
 This script retrieves a route using the Google Routes API and exports it as a GPX file.
 """
-
 import argparse
 import os
+import re
 import sys
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 
 import polyline
 import requests
@@ -20,11 +20,19 @@ API_KEY = os.getenv("GOOGLE_ROUTES_API_KEY")
 if API_KEY is None:
     raise ValueError("Google API key not found in .env file.")
 
+
+# Helper function to sanitize filenames
+def sanitize_filename(s):
+    return re.sub(r"[^a-zA-Z0-9_\-\s]", "_", s)
+
+
 # Command-line arguments
 parser = argparse.ArgumentParser(description="Compute route and export as GPX.")
 parser.add_argument("origin", help="Start location (address or lat,lng).")
 parser.add_argument("destination", help="End location (address or lat,lng).")
-parser.add_argument("mode", choices=["DRIVE", "TRANSIT", "BICYCLE", "WALK"], help="Travel mode.")
+parser.add_argument(
+    "mode", choices=["DRIVE", "TRANSIT", "BICYCLE", "WALK"], help="Travel mode."
+)
 args = parser.parse_args()
 
 # Google Routes API endpoint
@@ -95,20 +103,11 @@ gpx_lines.extend(["    </trkseg>", "  </trk>", "</gpx>"])
 
 gpx_content = "\n".join(gpx_lines)
 
-import re
-
-
-# Helper function to sanitize filenames
-def sanitize_filename(s):
-    return re.sub(r"[^a-zA-Z0-9_\-\s]", "_", s)
-
 
 # Sanitize input args for filename
 safe_origin = sanitize_filename(args.origin)
 safe_destination = sanitize_filename(args.destination)
 safe_mode = sanitize_filename(args.mode.lower())
-
-# Create safe output file name
 output_file = f"{safe_mode}-route_{safe_origin}-{safe_destination}.gpx"
 
 
