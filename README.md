@@ -1,4 +1,5 @@
 # `route2gpx`
+
 Sometimes you gotta fudge a track..
 
 A simple Python CLI tool that retrieves routes from Google Routes API (Compute Routes) and converts them into GPX files suitable for GPS devices or mapping software.
@@ -12,9 +13,10 @@ A simple Python CLI tool that retrieves routes from Google Routes API (Compute R
 ## Installation
 
 **Requirements:**
+
 - Python
 - Poetry
-- Google Cloud project with [Routes API enabled](https://console.cloud.google.com/apis/library/routes.googleapis.com)
+- API key for a Google Cloud project with [Routes API enabled](https://console.cloud.google.com/apis/library/routes.googleapis.com)
 
 ### Setup
 
@@ -60,4 +62,3 @@ This will generate a GPX file named something like:
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for details.
-
