@@ -79,6 +79,14 @@
             outline-offset: 2px;
         }
 
+        input.valid-coords {
+            border-color: #22c55e;
+        }
+
+        input.has-text {
+            border-color: #00d4ff;
+        }
+
         button {
             cursor: pointer;
             background: #00d4ff;
@@ -202,11 +210,23 @@
             border-radius: 8px;
             padding: 12px;
             border-left: 4px solid;
-            transition: transform 0.2s;
+            transition: transform 0.2s, background 0.2s, box-shadow 0.2s;
+            cursor: pointer;
         }
 
-        .route-item:hover {
+        .route-item:hover,
+        .route-item.highlighted {
             transform: translateX(4px);
+            background: #1a4a7a;
+        }
+
+        .route-item:focus {
+            outline: 2px solid #00d4ff;
+            outline-offset: 2px;
+        }
+
+        .route-item.highlighted {
+            box-shadow: 0 0 0 2px #00d4ff;
         }
 
         .route-item-header {
@@ -287,6 +307,36 @@
             color: #1a1a2e;
         }
 
+        .map-controls button.api-key-btn {
+            position: relative;
+        }
+
+        .map-controls button.api-key-btn.valid {
+            border-color: #22c55e;
+        }
+
+        .map-controls button.api-key-btn.valid::after {
+            content: '';
+            position: absolute;
+            top: -2px;
+            right: -2px;
+            width: 10px;
+            height: 10px;
+            background: #22c55e;
+            border-radius: 50%;
+            border: 2px solid #16213e;
+        }
+
+        .map-controls button.api-key-btn.missing {
+            border-color: #e94560;
+            animation: pulse-warning 2s infinite;
+        }
+
+        @keyframes pulse-warning {
+            0%, 100% { box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
+            50% { box-shadow: 0 2px 12px rgba(233, 69, 96, 0.5); }
+        }
+
         .map-mode-indicator {
             position: absolute;
             top: 10px;
@@ -306,6 +356,69 @@
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.7; }
+        }
+
+        /* Route Popup Styles */
+        .route-popup {
+            min-width: 200px;
+        }
+
+        .route-popup h4 {
+            margin: 0 0 8px 0;
+            font-size: 1rem;
+            color: #16213e;
+            word-break: break-word;
+        }
+
+        .route-popup .route-meta {
+            display: flex;
+            gap: 12px;
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .route-popup .route-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .route-popup .popup-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .route-popup .popup-btn {
+            flex: 1;
+            padding: 6px 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            transition: background 0.2s;
+        }
+
+        .route-popup .popup-btn.download {
+            background: #22c55e;
+            color: white;
+        }
+
+        .route-popup .popup-btn.download:hover {
+            background: #16a34a;
+        }
+
+        .route-popup .popup-btn.delete {
+            background: #e94560;
+            color: white;
+        }
+
+        .route-popup .popup-btn.delete:hover {
+            background: #dc2626;
         }
 
         .api-key-section {
@@ -342,28 +455,67 @@
             cursor: pointer;
         }
 
-        .color-presets {
-            display: flex;
-            gap: 4px;
-            margin-top: 6px;
+        .color-picker-wrapper {
+            position: relative;
+            display: inline-block;
         }
 
-        .color-preset {
-            width: 24px;
-            height: 24px;
+        .color-swatch {
+            width: 36px;
+            height: 32px;
+            border-radius: 6px;
+            border: 2px solid rgba(255,255,255,0.3);
+            cursor: pointer;
+            transition: transform 0.1s, border-color 0.1s;
+            padding: 0;
+            min-height: 32px;
+        }
+
+        .color-swatch:hover {
+            border-color: rgba(255,255,255,0.6);
+            transform: scale(1.05);
+        }
+
+        .color-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 6px;
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            padding: 8px;
+            display: none;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .color-dropdown.visible {
+            display: block;
+        }
+
+        .color-dropdown-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 6px;
+        }
+
+        .color-option {
+            width: 32px;
+            height: 32px;
             border-radius: 50%;
             border: 2px solid transparent;
             cursor: pointer;
             transition: transform 0.1s, border-color 0.1s;
             padding: 0;
-            min-height: 24px;
+            min-height: 32px;
         }
 
-        .color-preset:hover {
+        .color-option:hover {
             transform: scale(1.15);
         }
 
-        .color-preset.selected {
+        .color-option.selected {
             border-color: white;
             box-shadow: 0 0 0 2px #00d4ff;
         }
@@ -426,6 +578,7 @@
         .custom-marker {
             background: none;
             border: none;
+            transition: transform 0.15s ease, filter 0.15s ease;
         }
 
         .marker-icon {
@@ -445,25 +598,13 @@
             font-size: 12px;
         }
 
-        .marker-start {
-            background: #22c55e;
-            color: white;
-        }
-
-        .marker-end {
-            background: #ef4444;
-            color: white;
-        }
-
-        .marker-waypoint {
-            background: #f59e0b;
+        .marker-icon {
             color: white;
         }
 
         .marker-number {
             width: 24px;
             height: 24px;
-            background: #e94560;
             border-radius: 50%;
             display: flex;
             align-items: center;
@@ -473,6 +614,27 @@
             color: white;
             border: 2px solid white;
             box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+
+        /* Route hover highlight */
+        .marker-highlighted {
+            transform: scale(1.3);
+            filter: brightness(1.2);
+            z-index: 1000 !important;
+        }
+
+        .route-tooltip {
+            background: rgba(22, 33, 62, 0.95);
+            border: 1px solid #00d4ff;
+            color: #eee;
+            font-size: 0.85rem;
+            padding: 6px 10px;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .route-tooltip::before {
+            border-top-color: #00d4ff !important;
         }
 
         /* Loading spinner */
@@ -783,6 +945,7 @@
             border: 0;
         }
 
+        /* Responsive improvements */
         @media (max-width: 768px) {
             body {
                 flex-direction: column;
@@ -791,10 +954,67 @@
                 width: 100%;
                 max-height: 50vh;
                 order: 2;
+                padding: 16px;
             }
             .map-container {
                 order: 1;
                 min-height: 50vh;
+            }
+            
+            /* Larger touch targets on mobile */
+            .btn-icon {
+                min-width: 48px;
+                min-height: 48px;
+            }
+            
+            .map-controls {
+                gap: 10px;
+            }
+            
+            .inline-group {
+                flex-direction: column;
+                gap: 8px;
+            }
+            
+            .inline-group .form-group {
+                flex: none;
+            }
+            
+            /* Improve color picker for touch */
+            .color-dropdown-grid {
+                grid-template-columns: repeat(5, 1fr);
+                gap: 10px;
+                padding: 4px;
+            }
+            
+            .color-option {
+                width: 40px;
+                height: 40px;
+            }
+            
+            /* Stack waypoint buttons on small screens */
+            .waypoint-buttons {
+                flex-direction: column;
+            }
+        }
+
+        /* Reduce motion for users who prefer it */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        /* High contrast mode support */
+        @media (prefers-contrast: high) {
+            .route-item {
+                border: 2px solid currentColor;
+            }
+            
+            button {
+                border: 2px solid currentColor;
             }
         }
     </style>
@@ -807,13 +1027,6 @@
             <h1>🗺️ Route to GPX</h1>
             <p style="font-size: 0.75rem; color: #888; margin-top: 4px;">Convert routes to GPX files for GPS devices</p>
         </header>
-
-        <div class="privacy-badge" title="This app runs entirely in your browser. No data is sent to any server.">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            </svg>
-            <span><strong>100% Client-Side</strong> — Your data never leaves your browser</span>
-        </div>
 
         <button type="button" class="help-toggle" onclick="toggleHelp()" aria-expanded="false" aria-controls="helpContent">
             <span>ℹ️</span> How it works & keyboard shortcuts
@@ -840,44 +1053,8 @@
                 <li>GPX files work with Garmin, Wahoo, Strava, and most GPS apps</li>
             </ul>
         </div>
-        
-        <section class="api-key-section" aria-labelledby="api-key-label">
-            <label id="api-key-label" style="margin-bottom: 6px; display: block;">
-                API Key
-                <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about API key">
-                    ?
-                    <span class="tooltip-text">
-                        <strong>🔒 Your key stays private</strong><br><br>
-                        Your API key is stored only in your browser's localStorage and sent directly to Google — never to any other server. This app has no backend; we cannot see or access your key.
-                    </span>
-                </span>
-            </label>
-            <div class="api-key-status" id="apiKeyStatus">
-                <div class="status-left">
-                    <span class="status-icon missing" id="apiKeyIcon">✗</span>
-                    <span class="status-text missing" id="apiKeyText">No API key</span>
-                </div>
-                <button type="button" class="btn-outline btn-small" onclick="openApiKeyModal()" id="apiKeyBtn">
-                    Add Key
-                </button>
-            </div>
-        </section>
 
         <main id="main-form" role="main">
-            <div class="form-group">
-                <label for="routeName">
-                    Route Name
-                    <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about route name">
-                        ?
-                        <span class="tooltip-text">
-                            Give your route a memorable name for the GPX file and route list. If left blank, a name is auto-generated from origin → destination.
-                        </span>
-                    </span>
-                </label>
-                <input type="text" id="routeName" placeholder="Optional - auto-generated if blank" 
-                       title="Custom name for your route" />
-            </div>
-
             <div class="form-group">
                 <label for="origin">
                     Origin
@@ -967,14 +1144,21 @@
                         <span class="info-tooltip" tabindex="0" role="button" aria-label="About colors">
                             ?
                             <span class="tooltip-text">
-                                Colors auto-cycle for each new route. Click a preset or use the color picker for custom colors.
+                                Colors auto-cycle for each new route. Click to choose from presets.
                             </span>
                         </span>
                     </label>
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                        <div class="color-presets" id="colorPresets" role="radiogroup" aria-label="Route color presets" style="margin-top: 0;"></div>
-                        <input type="color" id="routeColor" class="color-picker" value="#ff4757" 
-                               aria-label="Custom color" title="Custom color" style="width: 36px; height: 32px;" />
+                    <div class="color-picker-wrapper">
+                        <button type="button" id="colorSwatch" class="color-swatch" 
+                                onclick="toggleColorDropdown()" 
+                                aria-label="Select route color" 
+                                aria-haspopup="true"
+                                aria-expanded="false"
+                                title="Click to choose color"></button>
+                        <input type="hidden" id="routeColor" value="#ff4757" />
+                        <div class="color-dropdown" id="colorDropdown" role="listbox" aria-label="Color options">
+                            <div class="color-dropdown-grid" id="colorOptions"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1023,6 +1207,11 @@
              tabindex="0"></div>
         
         <div class="map-controls">
+            <button type="button" id="apiKeyMapBtn" class="btn-icon api-key-btn" onclick="openApiKeyModal()"
+                    aria-label="API Key settings" 
+                    title="Google Routes API Key - Click to configure">
+                🔑
+            </button>
             <button type="button" id="clickModeBtn" class="btn-icon" onclick="toggleClickMode()"
                     aria-label="Toggle click-to-add mode" aria-pressed="false" 
                     title="Click-to-add mode: Click the map to set origin, destination, and waypoints">
@@ -1047,7 +1236,6 @@
         let clickMode = null; // null, 'origin', 'destination', 'waypoint'
         let distanceUnit = 'km';
         let previewMarkers = [];
-        let selectedColorIndex = 0;
 
         // Vibrant colors that pop on grayscale basemap
         const COLOR_PALETTE = [
@@ -1062,6 +1250,18 @@
             '#26de81', // Mint
             '#fc5c65', // Coral
         ];
+        let selectedColorIndex = -1; // Will be set by selectRandomColor
+        let availableColorIndices = []; // Pool of unused color indices for random selection
+
+        function resetColorPool() {
+            // Refill pool with all color indices
+            availableColorIndices = COLOR_PALETTE.map((_, i) => i);
+            // Remove currently selected if valid
+            if (selectedColorIndex >= 0) {
+                const idx = availableColorIndices.indexOf(selectedColorIndex);
+                if (idx > -1) availableColorIndices.splice(idx, 1);
+            }
+        }
 
         // ============ Initialize Map ============
         const map = L.map('map', {
@@ -1124,6 +1324,124 @@
             localStorage.setItem('route2gpx_routes', JSON.stringify(routeData));
         }
 
+        function createRoutePopup(route) {
+            const pointCount = route.coordinates.length;
+            const gpxContent = generateGPX(route);
+            const fileSize = formatFileSize(new Blob([gpxContent]).size);
+            const stopCount = route.stops ? route.stops.length : 0;
+            
+            return `
+                <div class="route-popup">
+                    <h4>${escapeHtml(route.name)}</h4>
+                    <div class="route-meta">
+                        <span>📏 ${formatDistance(route.distance)}</span>
+                        <span>⏱️ ${formatDuration(route.duration)}</span>
+                    </div>
+                    <div class="route-meta">
+                        <span>${getModeEmoji(route.travelMode)} ${route.travelMode.toLowerCase()}</span>
+                        ${stopCount > 0 ? `<span>📍 ${stopCount} stop${stopCount > 1 ? 's' : ''}</span>` : ''}
+                    </div>
+                    <div class="route-meta" style="border-top: 1px solid #eee; padding-top: 8px; margin-top: 4px;">
+                        <span>📄 ${fileSize}</span>
+                        <span>📌 ${pointCount.toLocaleString()} points</span>
+                    </div>
+                    <div class="popup-actions">
+                        <button class="popup-btn download" onclick="downloadRoute(${route.id}); map.closePopup();" title="Download GPX">
+                            ⬇️ Download
+                        </button>
+                        <button class="popup-btn delete" onclick="removeRoute(${route.id}); map.closePopup();" title="Remove route">
+                            🗑️ Remove
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        function bindRoutePopup(polylineLayer, route) {
+            const popup = L.popup({ closeButton: true, className: 'route-popup-container' })
+                .setContent(() => createRoutePopup(route));
+
+            polylineLayer.bindPopup(popup);
+
+            // Right-click also opens the popup
+            polylineLayer.on('contextmenu', function(e) {
+                L.DomEvent.stopPropagation(e);
+                L.DomEvent.preventDefault(e);
+                this.openPopup(e.latlng);
+            });
+        }
+
+        function bindRouteHoverEffects(route) {
+            const { polylineLayer, markers, name, origin, destination } = route;
+            
+            // Tooltip for polyline (route name)
+            polylineLayer.bindTooltip(name, {
+                sticky: true,
+                className: 'route-tooltip'
+            });
+            
+            // Tooltip for start marker (origin)
+            if (markers[0]) {
+                markers[0].bindTooltip(`Start: ${origin}`, {
+                    className: 'route-tooltip'
+                });
+            }
+            
+            // Tooltip for end marker (destination)
+            if (markers[1]) {
+                markers[1].bindTooltip(`End: ${destination}`, {
+                    className: 'route-tooltip'
+                });
+            }
+            
+            // Hover highlight function
+            const highlightRoute = () => {
+                polylineLayer.setStyle({ weight: 7, opacity: 1 });
+                markers.forEach(m => {
+                    if (m._icon) m._icon.classList.add('marker-highlighted');
+                });
+                // Highlight sidebar item
+                const sidebarItem = document.querySelector(`[data-route-id="${route.id}"]`);
+                if (sidebarItem) sidebarItem.classList.add('highlighted');
+            };
+            
+            const unhighlightRoute = () => {
+                polylineLayer.setStyle({ weight: 4, opacity: 0.8 });
+                markers.forEach(m => {
+                    if (m._icon) m._icon.classList.remove('marker-highlighted');
+                });
+                // Unhighlight sidebar item
+                const sidebarItem = document.querySelector(`[data-route-id="${route.id}"]`);
+                if (sidebarItem) sidebarItem.classList.remove('highlighted');
+            };
+            
+            // Store highlight functions on route for sidebar to use
+            route.highlight = highlightRoute;
+            route.unhighlight = unhighlightRoute;
+            
+            // Bind hover events to polyline
+            polylineLayer.on('mouseover', highlightRoute);
+            polylineLayer.on('mouseout', unhighlightRoute);
+            
+            // Bind hover events to markers
+            markers.forEach(marker => {
+                marker.on('mouseover', highlightRoute);
+                marker.on('mouseout', unhighlightRoute);
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         function restoreRoute(data) {
             const polylineLayer = L.polyline(data.coordinates, {
                 color: data.color,
@@ -1139,18 +1457,23 @@
                 markers
             };
             routes.push(route);
+
+            // Bind popup after route is in array
+            bindRoutePopup(polylineLayer, route);
+            bindRouteHoverEffects(route);
+
             renderRoutesList();
         }
 
         // ============ Custom Markers ============
-        function createMarkerIcon(type, number = null) {
+        function createMarkerIcon(type, color, number = null) {
             let html = '';
             if (type === 'start') {
-                html = '<div class="marker-icon marker-start"><span>A</span></div>';
+                html = `<div class="marker-icon" style="background: ${color}"><span>A</span></div>`;
             } else if (type === 'end') {
-                html = '<div class="marker-icon marker-end"><span>B</span></div>';
+                html = `<div class="marker-icon" style="background: ${color}"><span>B</span></div>`;
             } else if (type === 'waypoint') {
-                html = `<div class="marker-number">${number}</div>`;
+                html = `<div class="marker-number" style="background: ${color}">${number}</div>`;
             }
 
             return L.divIcon({
@@ -1166,13 +1489,13 @@
             
             // Start marker
             const startMarker = L.marker(coordinates[0], {
-                icon: createMarkerIcon('start')
+                icon: createMarkerIcon('start', color)
             }).addTo(map);
             markers.push(startMarker);
 
             // End marker
             const endMarker = L.marker(coordinates[coordinates.length - 1], {
-                icon: createMarkerIcon('end')
+                icon: createMarkerIcon('end', color)
             }).addTo(map);
             markers.push(endMarker);
 
@@ -1187,6 +1510,7 @@
             const origin = document.getElementById('origin').value.trim();
             const destination = document.getElementById('destination').value.trim();
             const stops = getStops();
+            const previewColor = document.getElementById('routeColor').value || '#888';
 
             // Only show preview markers for lat,lng inputs
             const latLngRegex = /^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/;
@@ -1195,7 +1519,7 @@
                 const match = origin.match(latLngRegex);
                 if (match) {
                     const marker = L.marker([parseFloat(match[1]), parseFloat(match[2])], {
-                        icon: createMarkerIcon('start'),
+                        icon: createMarkerIcon('start', previewColor),
                         opacity: 0.7
                     }).addTo(map);
                     previewMarkers.push(marker);
@@ -1206,7 +1530,7 @@
                 const match = destination.match(latLngRegex);
                 if (match) {
                     const marker = L.marker([parseFloat(match[1]), parseFloat(match[2])], {
-                        icon: createMarkerIcon('end'),
+                        icon: createMarkerIcon('end', previewColor),
                         opacity: 0.7
                     }).addTo(map);
                     previewMarkers.push(marker);
@@ -1217,7 +1541,7 @@
                 const match = stop.match(latLngRegex);
                 if (match) {
                     const marker = L.marker([parseFloat(match[1]), parseFloat(match[2])], {
-                        icon: createMarkerIcon('waypoint', idx + 1),
+                        icon: createMarkerIcon('waypoint', previewColor, idx + 1),
                         opacity: 0.7
                     }).addTo(map);
                     previewMarkers.push(marker);
@@ -1312,22 +1636,24 @@
 
         function updateApiKeyStatus() {
             const apiKey = getApiKey();
-            const icon = document.getElementById('apiKeyIcon');
-            const text = document.getElementById('apiKeyText');
-            const btn = document.getElementById('apiKeyBtn');
+            const btn = document.getElementById('apiKeyMapBtn');
 
             if (apiKey) {
-                icon.textContent = '✓';
-                icon.className = 'status-icon valid';
-                text.textContent = 'Key saved';
-                text.className = 'status-text valid';
-                btn.textContent = 'Edit';
+                btn.classList.remove('missing');
+                btn.classList.add('valid');
+                btn.title = 'API key saved — click to edit';
+                btn.setAttribute('aria-label', 'API key saved, click to edit');
             } else {
-                icon.textContent = '✗';
-                icon.className = 'status-icon missing';
-                text.textContent = 'No API key';
-                text.className = 'status-text missing';
-                btn.textContent = 'Add Key';
+                btn.classList.remove('valid');
+                btn.classList.add('missing');
+                btn.title = 'No API key — click to add';
+                btn.setAttribute('aria-label', 'No API key, click to add');
+            }
+        }
+
+        function checkApiKeyOnLoad() {
+            if (!getApiKey()) {
+                openApiKeyModal();
             }
         }
 
@@ -1351,12 +1677,18 @@
             if (key) {
                 localStorage.setItem('route2gpx_apiKey', key);
                 showStatus('API key saved');
+                updateApiKeyStatus();
+                closeApiKeyModal();
             } else {
-                localStorage.removeItem('route2gpx_apiKey');
+                showStatus('Please enter a valid API key', true);
+                input.focus();
             }
-            
+        }
+
+        function clearApiKey() {
+            localStorage.removeItem('route2gpx_apiKey');
             updateApiKeyStatus();
-            closeApiKeyModal();
+            openApiKeyModal();
         }
 
         // Close modal on Escape or click outside
@@ -1560,13 +1892,14 @@
             const origin = document.getElementById('origin').value.trim();
             const destination = document.getElementById('destination').value.trim();
             const travelMode = document.getElementById('travelMode').value;
-            const color = document.getElementById('routeColor').value;
-            const customName = document.getElementById('routeName').value.trim();
-            const stops = getStops();
+            let color = document.getElementById('routeColor').value;
             
-            // Auto-advance to next color for next route
-            const nextColorIdx = (selectedColorIndex + 1) % COLOR_PALETTE.length;
-            selectedColorIndex = nextColorIdx;
+            // Ensure we have a valid color
+            if (!color || color === '') {
+                color = COLOR_PALETTE[selectedColorIndex] || COLOR_PALETTE[0];
+                document.getElementById('routeColor').value = color;
+            }
+            const stops = getStops();
 
             // Validation
             if (!apiKey) {
@@ -1615,7 +1948,8 @@
 
                 if (!response.ok) {
                     const errorMsg = data.error?.message || 'API request failed';
-                    if (errorMsg.includes('API key')) {
+                    if (errorMsg.includes('API key') || response.status === 403 || response.status === 401) {
+                        clearApiKey();
                         throw new Error('Invalid API key. Please check your Google Routes API key.');
                     } else if (response.status === 429) {
                         throw new Error('Rate limited. Please wait a moment and try again.');
@@ -1632,9 +1966,9 @@
                 const distance = data.routes[0].distanceMeters;
                 const duration = data.routes[0].duration;
 
-                // Generate route name
+                // Generate route name (always auto-generated from origin → destination)
                 const routeId = Date.now();
-                const routeName = customName || `${truncate(origin, 20)} → ${truncate(destination, 20)}`;
+                const routeName = `${truncate(origin, 20)} → ${truncate(destination, 20)}`;
 
                 // Create polyline
                 const polylineLayer = L.polyline(coordinates, {
@@ -1667,6 +2001,10 @@
                 };
                 routes.push(route);
 
+                // Bind popup for click/right-click
+                bindRoutePopup(polylineLayer, route);
+                bindRouteHoverEffects(route);
+
                 // Clear preview markers
                 previewMarkers.forEach(m => map.removeLayer(m));
                 previewMarkers = [];
@@ -1679,11 +2017,15 @@
 
                 // Clear form for next route
                 document.getElementById('stopsContainer').innerHTML = '';
-                document.getElementById('routeName').value = '';
+                document.getElementById('origin').value = '';
+                document.getElementById('destination').value = '';
                 exitClickMode();
                 
-                // Update color picker to next color
-                initColorPresets();
+                // Pick a random color for the next route
+                selectRandomColor();
+                
+                // Return focus to origin for next route
+                document.getElementById('origin').focus();
 
             } catch (error) {
                 showStatus(error.message, true);
@@ -1742,13 +2084,25 @@
             const list = document.getElementById('routesList');
             
             if (routes.length === 0) {
-                list.innerHTML = '<div style="color: #666; text-align: center; padding: 20px;">No routes yet. Create one above!</div>';
+                list.innerHTML = `
+                    <div style="color: #888; text-align: center; padding: 24px;">
+                        <div style="font-size: 2rem; margin-bottom: 8px;">🗺️</div>
+                        <div style="font-weight: 600; margin-bottom: 4px;">No routes yet</div>
+                        <div style="font-size: 0.8rem; color: #666;">Enter an origin and destination above, then press Enter or click "Get Route"</div>
+                    </div>
+                `;
                 return;
             }
 
             list.innerHTML = routes.map((route, idx) => `
-                <div class="route-item" style="border-left-color: ${route.color}" role="listitem"
-                     aria-label="Route ${idx + 1}: ${escapeHtml(route.name)}">
+                <div class="route-item" style="border-left-color: ${route.color};" role="listitem"
+                     data-route-id="${route.id}"
+                     tabindex="0"
+                     aria-label="Route ${idx + 1}: ${escapeHtml(route.name)}. Press Enter to zoom and view details."
+                     onclick="zoomToRoute(${route.id})"
+                     onkeydown="if(event.key==='Enter'){zoomToRoute(${route.id})}"
+                     onmouseenter="highlightRouteById(${route.id})"
+                     onmouseleave="unhighlightRouteById(${route.id})">
                     <div class="route-item-header">
                         <div>
                             <div class="route-item-title">${escapeHtml(route.name)}</div>
@@ -1759,12 +2113,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="route-item-actions">
-                        <button class="btn-outline btn-small" onclick="zoomToRoute(${route.id})"
-                                aria-label="Zoom to route ${escapeHtml(route.name)}"
-                                title="Zoom map to fit this route">
-                            📍 Zoom
-                        </button>
+                    <div class="route-item-actions" onclick="event.stopPropagation()">
                         <button class="btn-outline btn-small" onclick="toggleRouteVisibility(${route.id})"
                                 aria-label="${route.visible ? 'Hide' : 'Show'} route"
                                 title="${route.visible ? 'Hide this route from the map' : 'Show this route on the map'}">
@@ -1800,7 +2149,33 @@
         function zoomToRoute(id) {
             const route = routes.find(r => r.id === id);
             if (route) {
+                // Ensure route is visible
+                if (!route.visible) {
+                    route.visible = true;
+                    route.polylineLayer.addTo(map);
+                    route.markers.forEach(m => m.addTo(map));
+                    renderRoutesList();
+                }
+                
                 map.fitBounds(route.polylineLayer.getBounds(), { padding: [50, 50] });
+                
+                // Open popup at the center of the route
+                const center = route.polylineLayer.getCenter();
+                route.polylineLayer.openPopup(center);
+            }
+        }
+
+        function highlightRouteById(id) {
+            const route = routes.find(r => r.id === id);
+            if (route && route.highlight) {
+                route.highlight();
+            }
+        }
+
+        function unhighlightRouteById(id) {
+            const route = routes.find(r => r.id === id);
+            if (route && route.unhighlight) {
+                route.unhighlight();
             }
         }
 
@@ -1966,91 +2341,184 @@
             }
         });
 
-        // Update preview markers on input change
-        ['origin', 'destination'].forEach(id => {
-            document.getElementById(id).addEventListener('input', updatePreviewMarkers);
+        // Debounce function for performance
+        function debounce(fn, delay) {
+            let timeoutId;
+            return function(...args) {
+                clearTimeout(timeoutId);
+                timeoutId = setTimeout(() => fn.apply(this, args), delay);
+            };
+        }
+
+        // Visual feedback for input validation
+        function updateInputValidation(input) {
+            const value = input.value.trim();
+            const latLngRegex = /^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/;
+            
+            input.classList.remove('valid-coords', 'has-text');
+            
+            if (latLngRegex.test(value)) {
+                input.classList.add('valid-coords');
+            } else if (value.length > 0) {
+                input.classList.add('has-text');
+            }
+        }
+
+        // Update preview markers on input change (debounced for performance)
+        const debouncedPreviewUpdate = debounce(updatePreviewMarkers, 150);
+        document.getElementById('origin').addEventListener('input', function() {
+            debouncedPreviewUpdate();
+            updateInputValidation(this);
+        });
+        document.getElementById('destination').addEventListener('input', function() {
+            debouncedPreviewUpdate();
+            updateInputValidation(this);
+        });
+
+        // Enter key in origin/destination triggers route
+        document.getElementById('origin').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                getRoute();
+            }
+        });
+        document.getElementById('destination').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                getRoute();
+            }
         });
 
         // ============ Color Presets ============
         function initColorPresets() {
-            const container = document.getElementById('colorPresets');
+            const container = document.getElementById('colorOptions');
             container.innerHTML = COLOR_PALETTE.map((color, idx) => `
-                <button type="button" class="color-preset ${idx === selectedColorIndex ? 'selected' : ''}" 
+                <button type="button" class="color-option ${idx === selectedColorIndex ? 'selected' : ''}" 
                         style="background: ${color}" 
                         onclick="selectColor(${idx})" 
-                        role="radio" 
-                        aria-checked="${idx === selectedColorIndex}"
+                        role="option" 
+                        aria-selected="${idx === selectedColorIndex}"
                         aria-label="Color ${idx + 1}: ${color}"
                         title="${color}"></button>
             `).join('');
             
-            document.getElementById('routeColor').value = COLOR_PALETTE[selectedColorIndex];
+            updateColorSwatch();
+        }
+
+        function updateColorSwatch() {
+            // Ensure we have a valid color index
+            if (selectedColorIndex < 0 || selectedColorIndex >= COLOR_PALETTE.length) {
+                selectedColorIndex = Math.floor(Math.random() * COLOR_PALETTE.length);
+            }
+            const color = COLOR_PALETTE[selectedColorIndex];
+            document.getElementById('colorSwatch').style.background = color;
+            document.getElementById('routeColor').value = color;
+        }
+
+        function toggleColorDropdown() {
+            const dropdown = document.getElementById('colorDropdown');
+            const swatch = document.getElementById('colorSwatch');
+            const isVisible = dropdown.classList.toggle('visible');
+            swatch.setAttribute('aria-expanded', isVisible);
+        }
+
+        function closeColorDropdown() {
+            const dropdown = document.getElementById('colorDropdown');
+            const swatch = document.getElementById('colorSwatch');
+            dropdown.classList.remove('visible');
+            swatch.setAttribute('aria-expanded', 'false');
         }
 
         function selectColor(idx) {
             selectedColorIndex = idx;
-            const color = COLOR_PALETTE[idx];
-            document.getElementById('routeColor').value = color;
+            
+            // Remove this color from the available pool if present
+            const poolIdx = availableColorIndices.indexOf(idx);
+            if (poolIdx > -1) {
+                availableColorIndices.splice(poolIdx, 1);
+            }
+            
+            updateColorSwatch();
             
             // Update selected state
-            document.querySelectorAll('.color-preset').forEach((btn, i) => {
+            document.querySelectorAll('.color-option').forEach((btn, i) => {
                 btn.classList.toggle('selected', i === idx);
-                btn.setAttribute('aria-checked', i === idx);
+                btn.setAttribute('aria-selected', i === idx);
             });
+            
+            closeColorDropdown();
         }
 
         function getNextColor() {
-            // Cycle through palette for each new route
+            // Return current color and pick a new random one
             const color = COLOR_PALETTE[selectedColorIndex];
-            selectedColorIndex = (selectedColorIndex + 1) % COLOR_PALETTE.length;
-            initColorPresets();
+            selectRandomColor();
             return color;
         }
 
-        // Custom color picker deselects presets
-        document.getElementById('routeColor').addEventListener('input', function() {
-            document.querySelectorAll('.color-preset').forEach(btn => {
-                btn.classList.remove('selected');
-                btn.setAttribute('aria-checked', 'false');
-            });
+        function selectRandomColor() {
+            // Refill pool if empty
+            if (availableColorIndices.length === 0) {
+                resetColorPool();
+            }
+            
+            // Safety check - if pool is still empty, fill with all indices
+            if (availableColorIndices.length === 0) {
+                availableColorIndices = COLOR_PALETTE.map((_, i) => i);
+            }
+            
+            // Pick a random index from the available pool and remove it
+            const poolIdx = Math.floor(Math.random() * availableColorIndices.length);
+            selectedColorIndex = availableColorIndices.splice(poolIdx, 1)[0];
+            
+            initColorPresets();
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            const wrapper = document.querySelector('.color-picker-wrapper');
+            if (wrapper && !wrapper.contains(e.target)) {
+                closeColorDropdown();
+            }
         });
 
         // ============ Initialize ============
-        initColorPresets();
+        selectRandomColor(); // Pick initial random color
         loadFromStorage();
         renderRoutesList();
         updateApiKeyStatus();
+        checkApiKeyOnLoad();
     </script>
 
     <!-- API Key Modal -->
     <div class="modal-overlay" id="apiKeyModal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div class="modal">
-            <h2 id="modal-title">🔑 Google Routes API Key</h2>
+            <h2 id="modal-title">🔑 API Key Required</h2>
+            
+            <p>
+                To calculate routes, you need a <strong>Google Routes API key</strong>. 
+                Don't worry — it only takes a few minutes to set up, and Google offers generous free usage.
+            </p>
             
             <div class="privacy-note">
                 <strong>🔒 100% Private & Secure</strong><br>
-                This app runs entirely in your browser — there is no server. Your API key is stored only in localStorage and sent directly to Google. We never see or have access to your key.
+                This app runs entirely in your browser — there is no server. Your API key is stored only in your browser's localStorage and sent directly to Google. We never see or have access to your key.
             </div>
             
-            <p>
-                You need a Google Routes API key to calculate routes. 
-                It only takes a few minutes to set up.
-            </p>
-            
             <div class="form-group">
-                <label for="apiKeyInput">API Key</label>
-                <input type="password" id="apiKeyInput" placeholder="Paste your API key here" 
+                <label for="apiKeyInput">Paste your API Key</label>
+                <input type="password" id="apiKeyInput" placeholder="AIza..." 
                        autocomplete="off" style="width: 100%;" />
             </div>
             
             <div class="btn-row">
-                <button type="button" class="btn-outline" onclick="closeApiKeyModal()">Cancel</button>
+                <button type="button" class="btn-outline" onclick="closeApiKeyModal()">Later</button>
                 <button type="button" onclick="saveApiKey()">Save Key</button>
             </div>
             
             <a href="https://developers.google.com/maps/documentation/routes/get-api-key" 
                target="_blank" rel="noopener noreferrer" class="help-link">
-               📖 How to get a Google Routes API key →
+               📖 Step-by-step guide: Get a Google Routes API key →
             </a>
         </div>
     </div>

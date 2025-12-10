@@ -2,63 +2,83 @@
 
 Sometimes you gotta fudge a track..
 
-A simple Python CLI tool that retrieves routes from Google Routes API (Compute Routes) and converts them into GPX files suitable for GPS devices or mapping software.
+Convert routes from Google Routes API into GPX files for GPS devices, bike computers, and mapping software.
+
+## 🌐 Web App
+
+**[Try it online →](https://robert-bryson.github.io/route2gpx/)** — No installation required!
+
+A fully client-side web app that runs entirely in your browser. Your API key and routes never touch a server.
+
+### Web Features
+
+- 🗺️ Interactive map with click-to-add waypoints
+- 🚗🚴🚶🚌 Support for Drive, Bicycle, Walk, and Transit modes
+- 📥 Download individual routes or all at once as GPX files
+- 🎨 Auto-cycling color palette for multiple routes
+- 💾 Routes persist in browser localStorage
+- 📱 Mobile-friendly responsive design
+- ♿ Full keyboard navigation and screen reader support
+- 🔒 100% private — runs entirely in your browser
+
+### Getting Started (Web)
+
+1. Visit the web app
+2. Enter your [Google Routes API key](https://developers.google.com/maps/documentation/routes/get-api-key)
+3. Enter origin and destination (addresses, places, or coordinates)
+4. Press Enter or click "Get Route"
+5. Download your GPX file
+
+---
+
+## 🐍 Python CLI
+
+A simple command-line tool for scripting or batch processing.
 
 ### Features
 
-- Retrieves routes using Google's modern Routes API.
-- Supports driving and transit (including train routes).
-- Exports routes to GPX format with dummy timestamps and elevation data.
+- Retrieves routes using Google's modern Routes API
+- Supports driving and transit modes
+- Exports routes to GPX format with timestamps and elevation data
 
-## Installation
+### Installation
 
 **Requirements:**
 
-- Python
+- Python 3.x
 - Poetry
-- API key for a Google Cloud project with [Routes API enabled](https://console.cloud.google.com/apis/library/routes.googleapis.com)
-
-### Setup
-
-Clone this repository:
+- [Google Routes API key](https://console.cloud.google.com/apis/library/routes.googleapis.com)
 
 ```bash
 git clone https://github.com/robert-bryson/route2gpx.git
 cd route2gpx
-```
-
-Install required Python packages:
-
-```bash
 poetry install
 ```
 
-Create a `.env` file in the project root with your Google API key:
+Create a `.env` file with your API key:
 
-`GOOGLE_ROUTES_API_KEY=your_google_api_key_here`
+```env
+GOOGLE_ROUTES_API_KEY=your_api_key_here
+```
 
-## Usage
-
-Run the script from your terminal:
+### Usage
 
 ```bash
 poetry run python route2gpx.py "Start Location" "End Location" MODE
 ```
 
-Replace "Start Location" and "End Location" with places, addresses, or latitude/longitude coordinates.
+`MODE` can be `DRIVE` or `TRANSIT`.
 
-`MODE` can be either `DRIVE` or `TRANSIT`.
-
-### Example
+**Example:**
 
 ```bash
-python route2gpx.py "Seattle, WA" "Portland, OR" DRIVE
+poetry run python route2gpx.py "Seattle, WA" "Portland, OR" DRIVE
 ```
 
-This will generate a GPX file named something like:
+Outputs: `drive-route_Seattle_WA-Portland_OR.gpx`
 
-`drive-route_Seattle_ WA-Portland_ OR.gpx`
+---
 
 ## License
 
-This project is licensed under the MIT License. See the LICENSE file for details.
+MIT License — see [LICENSE](LICENSE) for details.
