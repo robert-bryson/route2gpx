@@ -20,20 +20,38 @@
             color: #eee;
         }
 
+        /* Skip link for accessibility */
+        .skip-link {
+            position: absolute;
+            top: -40px;
+            left: 0;
+            background: #00d4ff;
+            color: #1a1a2e;
+            padding: 8px 16px;
+            z-index: 10000;
+            font-weight: 600;
+            text-decoration: none;
+            border-radius: 0 0 4px 0;
+        }
+
+        .skip-link:focus {
+            top: 0;
+        }
+
         .sidebar {
-            width: 380px;
+            width: 400px;
             padding: 20px;
             background: #16213e;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 14px;
         }
 
         h1 {
-            font-size: 1.5rem;
+            font-size: 1.4rem;
             color: #00d4ff;
-            margin-bottom: 8px;
+            margin-bottom: 4px;
         }
 
         .form-group {
@@ -56,9 +74,9 @@
             color: #eee;
         }
 
-        input:focus, select:focus {
-            outline: none;
-            border-color: #00d4ff;
+        input:focus, select:focus, button:focus {
+            outline: 3px solid #00d4ff;
+            outline-offset: 2px;
         }
 
         button {
@@ -67,16 +85,22 @@
             color: #1a1a2e;
             font-weight: 600;
             border: none;
-            transition: background 0.2s;
+            transition: background 0.2s, transform 0.1s;
+            min-height: 44px;
         }
 
         button:hover {
             background: #00b8e6;
         }
 
+        button:active {
+            transform: scale(0.98);
+        }
+
         button:disabled {
             background: #555;
             cursor: not-allowed;
+            transform: none;
         }
 
         .btn-secondary {
@@ -97,24 +121,72 @@
             background: rgba(0, 212, 255, 0.1);
         }
 
+        .btn-small {
+            padding: 6px 10px;
+            font-size: 0.8rem;
+            min-height: 36px;
+        }
+
+        .btn-icon {
+            padding: 8px;
+            min-width: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .input-with-btn {
+            display: flex;
+            gap: 8px;
+        }
+
+        .input-with-btn input {
+            flex: 1;
+        }
+
         .stops-container {
             display: flex;
             flex-direction: column;
             gap: 8px;
+            max-height: 150px;
+            overflow-y: auto;
         }
 
         .stop-row {
             display: flex;
             gap: 8px;
+            align-items: center;
         }
 
         .stop-row input {
             flex: 1;
         }
 
+        .stop-row .stop-number {
+            min-width: 24px;
+            height: 24px;
+            background: #e94560;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
         .stop-row button {
             padding: 8px 12px;
             background: #e94560;
+            min-height: 38px;
+        }
+
+        .waypoint-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .waypoint-buttons button {
+            flex: 1;
         }
 
         .routes-list {
@@ -130,6 +202,11 @@
             border-radius: 8px;
             padding: 12px;
             border-left: 4px solid;
+            transition: transform 0.2s;
+        }
+
+        .route-item:hover {
+            transform: translateX(4px);
         }
 
         .route-item-header {
@@ -156,6 +233,7 @@
             display: flex;
             gap: 6px;
             margin-top: 8px;
+            flex-wrap: wrap;
         }
 
         .route-item-actions button {
@@ -172,9 +250,62 @@
             flex: 1;
         }
 
-        #map {
+        .map-container {
             flex: 1;
+            position: relative;
             min-height: 400px;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .map-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .map-controls button {
+            background: #16213e;
+            color: #eee;
+            border: 2px solid #333;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        }
+
+        .map-controls button:hover {
+            background: #0f3460;
+        }
+
+        .map-controls button.active {
+            background: #00d4ff;
+            color: #1a1a2e;
+        }
+
+        .map-mode-indicator {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            background: rgba(233, 69, 96, 0.9);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: none;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
         }
 
         .api-key-section {
@@ -211,6 +342,32 @@
             cursor: pointer;
         }
 
+        .color-presets {
+            display: flex;
+            gap: 4px;
+            margin-top: 6px;
+        }
+
+        .color-preset {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: transform 0.1s, border-color 0.1s;
+            padding: 0;
+            min-height: 24px;
+        }
+
+        .color-preset:hover {
+            transform: scale(1.15);
+        }
+
+        .color-preset.selected {
+            border-color: white;
+            box-shadow: 0 0 0 2px #00d4ff;
+        }
+
         .inline-group {
             display: flex;
             gap: 12px;
@@ -220,8 +377,283 @@
             flex: 1;
         }
 
-        .inline-group .form-group:last-child {
+        .inline-group .form-group.small {
             flex: 0 0 70px;
+        }
+
+        .settings-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            font-size: 0.85rem;
+        }
+
+        .settings-row label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+
+        .unit-toggle {
+            display: flex;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid #333;
+        }
+
+        .unit-toggle button {
+            border-radius: 0;
+            border: none;
+            padding: 6px 12px;
+            min-height: 32px;
+            background: #0f3460;
+            color: #aaa;
+        }
+
+        .unit-toggle button.active {
+            background: #00d4ff;
+            color: #1a1a2e;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px solid #333;
+            margin: 4px 0;
+        }
+
+        /* Custom map markers */
+        .custom-marker {
+            background: none;
+            border: none;
+        }
+
+        .marker-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+        }
+
+        .marker-icon span {
+            transform: rotate(45deg);
+            font-weight: 600;
+            font-size: 12px;
+        }
+
+        .marker-start {
+            background: #22c55e;
+            color: white;
+        }
+
+        .marker-end {
+            background: #ef4444;
+            color: white;
+        }
+
+        .marker-waypoint {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .marker-number {
+            width: 24px;
+            height: 24px;
+            background: #e94560;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+            color: white;
+            border: 2px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+
+        /* Loading spinner */
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Keyboard shortcuts hint */
+        .keyboard-hint {
+            font-size: 0.7rem;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .help-link {
+            color: #00d4ff;
+            text-decoration: none;
+            font-size: 0.75rem;
+        }
+
+        .help-link:hover {
+            text-decoration: underline;
+        }
+
+        /* Privacy badge */
+        .privacy-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(34, 197, 94, 0.15);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-top: 8px;
+            font-size: 0.75rem;
+            color: #22c55e;
+        }
+
+        .privacy-badge svg {
+            flex-shrink: 0;
+        }
+
+        /* Info tooltip */
+        .info-tooltip {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            background: #333;
+            border-radius: 50%;
+            font-size: 10px;
+            color: #aaa;
+            cursor: help;
+            margin-left: 4px;
+            vertical-align: middle;
+        }
+
+        .info-tooltip:hover {
+            background: #00d4ff;
+            color: #1a1a2e;
+        }
+
+        .info-tooltip .tooltip-text {
+            visibility: hidden;
+            opacity: 0;
+            position: absolute;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1a1a2e;
+            color: #eee;
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: normal;
+            line-height: 1.4;
+            width: 220px;
+            text-align: left;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            border: 1px solid #333;
+            z-index: 1000;
+            transition: opacity 0.2s, visibility 0.2s;
+        }
+
+        .info-tooltip .tooltip-text::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -6px;
+            border-width: 6px;
+            border-style: solid;
+            border-color: #333 transparent transparent transparent;
+        }
+
+        .info-tooltip:hover .tooltip-text,
+        .info-tooltip:focus .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        /* Help section toggle */
+        .help-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: none;
+            border: none;
+            color: #00d4ff;
+            font-size: 0.8rem;
+            cursor: pointer;
+            padding: 8px 0;
+            min-height: auto;
+        }
+
+        .help-toggle:hover {
+            background: none;
+            text-decoration: underline;
+        }
+
+        .help-content {
+            background: #0f3460;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            display: none;
+        }
+
+        .help-content.visible {
+            display: block;
+        }
+
+        .help-content h3 {
+            font-size: 0.85rem;
+            color: #00d4ff;
+            margin-bottom: 8px;
+        }
+
+        .help-content ul {
+            margin: 8px 0;
+            padding-left: 18px;
+        }
+
+        .help-content li {
+            margin-bottom: 4px;
+            color: #bbb;
+        }
+
+        .help-content kbd {
+            background: #333;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 0.75rem;
+        }
+
+        /* Visually hidden for screen readers */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
         }
 
         @media (max-width: 768px) {
@@ -231,95 +663,593 @@
             .sidebar {
                 width: 100%;
                 max-height: 50vh;
+                order: 2;
+            }
+            .map-container {
+                order: 1;
+                min-height: 50vh;
             }
         }
     </style>
 </head>
 <body>
-    <div class="sidebar">
-        <h1>🗺️ Route to GPX</h1>
+    <a href="#main-form" class="skip-link">Skip to main content</a>
+    
+    <nav class="sidebar" role="navigation" aria-label="Route controls">
+        <header>
+            <h1>🗺️ Route to GPX</h1>
+            <p style="font-size: 0.75rem; color: #888; margin-top: 4px;">Convert routes to GPX files for GPS devices</p>
+        </header>
+
+        <div class="privacy-badge" title="This app runs entirely in your browser. No data is sent to any server.">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            <span><strong>100% Client-Side</strong> — Your data never leaves your browser</span>
+        </div>
+
+        <button type="button" class="help-toggle" onclick="toggleHelp()" aria-expanded="false" aria-controls="helpContent">
+            <span>ℹ️</span> How it works & keyboard shortcuts
+        </button>
         
-        <div class="api-key-section">
-            <label for="apiKey">Google Routes API Key</label>
-            <input type="password" id="apiKey" placeholder="Enter your API key" />
+        <div id="helpContent" class="help-content" role="region" aria-labelledby="help-heading">
+            <h3 id="help-heading">🔒 Privacy First</h3>
+            <p>This app runs <strong>entirely in your browser</strong>. There is no server — your API key and routes are stored only in your browser's localStorage and are never transmitted anywhere except directly to Google's API.</p>
+            
+            <h3>⌨️ Keyboard Shortcuts</h3>
+            <ul>
+                <li><kbd>Enter</kbd> in any field — Get route</li>
+                <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd> — Get route from anywhere</li>
+                <li><kbd>Escape</kbd> — Exit click-to-add mode</li>
+                <li>Arrow keys — Pan map when focused</li>
+                <li><kbd>+</kbd> / <kbd>-</kbd> — Zoom map</li>
+            </ul>
+            
+            <h3>💡 Tips</h3>
+            <ul>
+                <li>Click the <strong>✚</strong> button on the map to add points by clicking</li>
+                <li>Enter coordinates as <code>lat, lng</code> (e.g., <code>40.7128, -74.0060</code>)</li>
+                <li>Routes persist when you refresh the page</li>
+                <li>GPX files work with Garmin, Wahoo, Strava, and most GPS apps</li>
+            </ul>
         </div>
+        
+        <section class="api-key-section" aria-labelledby="api-key-label">
+            <label id="api-key-label" for="apiKey">
+                Google Routes API Key
+                <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about API key">
+                    ?
+                    <span class="tooltip-text">
+                        <strong>Your key stays private</strong><br>
+                        Your API key is stored only in your browser and sent directly to Google — never to any other server. We cannot see or access your key.
+                    </span>
+                </span>
+            </label>
+            <input type="password" id="apiKey" placeholder="Enter your API key" 
+                   aria-describedby="api-key-hint" autocomplete="off"
+                   title="Your Google Routes API key. Stored securely in your browser only." />
+            <div id="api-key-hint" class="keyboard-hint">
+                🔐 Stored locally in your browser only • 
+                <a href="https://developers.google.com/maps/documentation/routes/get-api-key" 
+                   target="_blank" rel="noopener noreferrer" class="help-link"
+                   title="Open Google's guide to creating a Routes API key">
+                   Get an API key →
+                </a>
+            </div>
+        </section>
 
-        <div class="form-group">
-            <label for="origin">Origin</label>
-            <input type="text" id="origin" placeholder="Address or lat,lng" />
-        </div>
-
-        <div class="form-group">
-            <label for="destination">Destination</label>
-            <input type="text" id="destination" placeholder="Address or lat,lng" />
-        </div>
-
-        <div class="form-group">
-            <label>Waypoints (optional)</label>
-            <div class="stops-container" id="stopsContainer"></div>
-            <button type="button" class="btn-outline" onclick="addStop()">+ Add Waypoint</button>
-        </div>
-
-        <div class="inline-group">
+        <main id="main-form" role="main">
             <div class="form-group">
-                <label for="travelMode">Travel Mode</label>
-                <select id="travelMode">
-                    <option value="DRIVE">Drive</option>
-                    <option value="TRANSIT">Transit</option>
-                    <option value="BICYCLE">Bicycle</option>
-                    <option value="WALK">Walk</option>
+                <label for="routeName">
+                    Route Name (optional)
+                    <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about route name">
+                        ?
+                        <span class="tooltip-text">
+                            Give your route a memorable name. This will appear in the GPX file and the route list. If left blank, a name is auto-generated from origin/destination.
+                        </span>
+                    </span>
+                </label>
+                <input type="text" id="routeName" placeholder="My awesome route" 
+                       aria-describedby="route-name-hint"
+                       title="Custom name for your route (used in GPX filename)" />
+                <div id="route-name-hint" class="keyboard-hint">Used in GPX file • Auto-generated if blank</div>
+            </div>
+
+            <div class="form-group">
+                <label for="origin">
+                    Origin
+                    <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about origin">
+                        ?
+                        <span class="tooltip-text">
+                            Enter a street address, city name, landmark, or coordinates (lat, lng). Examples:<br>
+                            • "123 Main St, NYC"<br>
+                            • "Eiffel Tower, Paris"<br>
+                            • "40.7128, -74.0060"
+                        </span>
+                    </span>
+                </label>
+                <div class="input-with-btn">
+                    <input type="text" id="origin" placeholder="Address, place, or lat,lng" 
+                           aria-describedby="origin-hint"
+                           title="Starting point: address, place name, or coordinates" />
+                    <button type="button" class="btn-icon btn-outline" onclick="useMyLocation('origin')" 
+                            aria-label="Use my current location as origin" 
+                            title="Use your current GPS location as the starting point">
+                        📍
+                    </button>
+                </div>
+                <div id="origin-hint" class="keyboard-hint">📍 = use GPS • Or click ✚ on map to select</div>
+            </div>
+
+            <div class="form-group">
+                <label for="destination">
+                    Destination
+                    <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about destination">
+                        ?
+                        <span class="tooltip-text">
+                            Where you want to end up. Same format as origin — address, place name, or lat,lng coordinates.
+                        </span>
+                    </span>
+                </label>
+                <div class="input-with-btn">
+                    <input type="text" id="destination" placeholder="Address, place, or lat,lng" 
+                           aria-describedby="dest-hint"
+                           title="End point: address, place name, or coordinates" />
+                    <button type="button" class="btn-icon btn-outline" onclick="useMyLocation('destination')" 
+                            aria-label="Use my current location as destination" 
+                            title="Use your current GPS location as the end point">
+                        📍
+                    </button>
+                </div>
+                <div id="dest-hint" class="keyboard-hint">📍 = use GPS • Or click ✚ on map to select</div>
+            </div>
+
+            <div class="form-group">
+                <label id="waypoints-label">
+                    Waypoints (optional)
+                    <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about waypoints">
+                        ?
+                        <span class="tooltip-text">
+                            Add intermediate stops along your route. The route will pass through each waypoint in order. Great for scenic routes or multi-stop trips.
+                        </span>
+                    </span>
+                </label>
+                <div class="stops-container" id="stopsContainer" role="list" 
+                     aria-labelledby="waypoints-label"></div>
+                <div class="waypoint-buttons">
+                    <button type="button" class="btn-outline btn-small" onclick="addStop()" 
+                            aria-label="Add a waypoint"
+                            title="Add an intermediate stop along your route">
+                        + Add Waypoint
+                    </button>
+                    <button type="button" class="btn-outline btn-small" onclick="reverseRoute()" 
+                            aria-label="Reverse the route direction"
+                            title="Swap origin and destination, reverse all waypoints">
+                        🔄 Reverse
+                    </button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="travelMode">
+                    Travel Mode
+                    <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about travel mode">
+                        ?
+                        <span class="tooltip-text">
+                            <strong>Drive:</strong> Car routes via roads<br>
+                            <strong>Bicycle:</strong> Bike-friendly paths<br>
+                            <strong>Walk:</strong> Pedestrian routes<br>
+                            <strong>Transit:</strong> Public transportation
+                        </span>
+                    </span>
+                </label>
+                <select id="travelMode" aria-describedby="mode-hint"
+                        title="How you plan to travel this route">
+                    <option value="DRIVE">🚗 Drive</option>
+                    <option value="TRANSIT">🚌 Transit</option>
+                    <option value="BICYCLE">🚴 Bicycle</option>
+                    <option value="WALK">🚶 Walk</option>
                 </select>
             </div>
+
             <div class="form-group">
-                <label for="routeColor">Color</label>
-                <input type="color" id="routeColor" class="color-picker" value="#00d4ff" />
+                <label>
+                    Route Color
+                    <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about route color">
+                        ?
+                        <span class="tooltip-text">
+                            Choose a color to display this route on the map. Helpful when comparing multiple routes. Colors auto-cycle for each new route.
+                        </span>
+                    </span>
+                </label>
+                <div class="color-presets" id="colorPresets" role="radiogroup" aria-label="Route color presets"></div>
+                <div class="inline-group" style="margin-top: 8px;">
+                    <input type="color" id="routeColor" class="color-picker" value="#ff4757" 
+                           aria-label="Custom route color" title="Pick a custom color for this route" />
+                    <span style="font-size: 0.75rem; color: #888; align-self: center;">or pick custom</span>
+                </div>
             </div>
+
+            <div class="settings-row">
+                <span>Distance:</span>
+                <div class="unit-toggle" role="radiogroup" aria-label="Distance unit">
+                    <button type="button" id="unitKm" class="active" onclick="setUnit('km')" 
+                            role="radio" aria-checked="true" title="Show distances in kilometers">km</button>
+                    <button type="button" id="unitMi" onclick="setUnit('mi')" 
+                            role="radio" aria-checked="false" title="Show distances in miles">mi</button>
+                </div>
+            </div>
+
+            <button id="getRouteBtn" onclick="getRoute()" aria-describedby="route-btn-hint"
+                    title="Calculate route and display on map. Requires origin and destination.">
+                Get Route
+            </button>
+            <div id="route-btn-hint" class="keyboard-hint">⏎ Enter in any field • ⌘/Ctrl+Enter from anywhere</div>
+
+            <div id="status" class="status" role="status" aria-live="polite" style="display: none;"></div>
+        </main>
+
+        <hr />
+
+        <section aria-labelledby="routes-heading">
+            <div class="bulk-actions">
+                <button class="btn-outline" onclick="downloadAllRoutes()" id="downloadAllBtn" disabled
+                        aria-label="Download all routes as GPX files"
+                        title="Download every route as a separate GPX file">
+                    📥 Download All
+                </button>
+                <button class="btn-secondary" onclick="clearAllRoutes()" id="clearAllBtn" disabled
+                        aria-label="Remove all routes from the map"
+                        title="Remove all routes from the map and storage">
+                    🗑️ Clear All
+                </button>
+            </div>
+
+            <h2 id="routes-heading" class="sr-only">Saved Routes</h2>
+            <div class="routes-list" id="routesList" role="list" aria-label="List of routes"></div>
+        </section>
+    </nav>
+
+    <div class="map-container">
+        <div id="map" role="application" aria-label="Route map. Click to add waypoints when in click mode."
+             tabindex="0"></div>
+        
+        <div class="map-controls">
+            <button type="button" id="clickModeBtn" class="btn-icon" onclick="toggleClickMode()"
+                    aria-label="Toggle click-to-add mode" aria-pressed="false" 
+                    title="Click-to-add mode: Click the map to set origin, destination, and waypoints">
+                ✚
+            </button>
+            <button type="button" class="btn-icon" onclick="locateMe()"
+                    aria-label="Center map on my location" 
+                    title="Center the map on your current GPS location">
+                🎯
+            </button>
         </div>
 
-        <button id="getRouteBtn" onclick="getRoute()">Get Route</button>
-
-        <div id="status" class="status" style="display: none;"></div>
-
-        <hr style="border-color: #333; margin: 8px 0;" />
-
-        <div class="bulk-actions">
-            <button class="btn-outline" onclick="downloadAllRoutes()" id="downloadAllBtn" disabled>
-                📥 Download All
-            </button>
-            <button class="btn-secondary" onclick="clearAllRoutes()" id="clearAllBtn" disabled>
-                🗑️ Clear All
-            </button>
+        <div class="map-mode-indicator" id="mapModeIndicator" aria-live="assertive">
+            Click map: <span id="clickModeTarget">Set Origin</span> (Esc to cancel)
         </div>
-
-        <div class="routes-list" id="routesList"></div>
     </div>
-
-    <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Initialize map
-        const map = L.map('map').setView([39.8283, -98.5795], 4);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(map);
-
-        // Store routes
+        // ============ State ============
         let routes = [];
-        let stopCount = 0;
+        let clickMode = null; // null, 'origin', 'destination', 'waypoint'
+        let distanceUnit = 'km';
+        let previewMarkers = [];
+        let selectedColorIndex = 0;
 
-        // Load API key from localStorage
-        const savedApiKey = localStorage.getItem('googleRoutesApiKey');
-        if (savedApiKey) {
-            document.getElementById('apiKey').value = savedApiKey;
-        }
+        // Vibrant colors that pop on grayscale basemap
+        const COLOR_PALETTE = [
+            '#ff4757', // Red
+            '#2ed573', // Green  
+            '#1e90ff', // Dodger Blue
+            '#ffa502', // Orange
+            '#a55eea', // Purple
+            '#ff6b81', // Pink
+            '#00d4ff', // Cyan
+            '#ffdd59', // Yellow
+            '#26de81', // Mint
+            '#fc5c65', // Coral
+        ];
 
-        // Save API key on change
-        document.getElementById('apiKey').addEventListener('change', (e) => {
-            localStorage.setItem('googleRoutesApiKey', e.target.value);
+        // ============ Initialize Map ============
+        const map = L.map('map', {
+            center: [39.8283, -98.5795],
+            zoom: 4,
+            keyboard: true,
+            keyboardPanDelta: 100
         });
 
-        // Polyline decoder (Google's encoded polyline algorithm)
+        // Grayscale basemap for better route visibility
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> contributors, © <a href="https://carto.com/">CARTO</a>',
+            maxZoom: 19,
+            subdomains: 'abcd'
+        }).addTo(map);
+
+        // ============ LocalStorage ============
+        function loadFromStorage() {
+            // API Key
+            const savedApiKey = localStorage.getItem('route2gpx_apiKey');
+            if (savedApiKey) {
+                document.getElementById('apiKey').value = savedApiKey;
+            }
+
+            // Distance unit
+            const savedUnit = localStorage.getItem('route2gpx_unit');
+            if (savedUnit) {
+                setUnit(savedUnit, false);
+            }
+
+            // Saved routes
+            const savedRoutes = localStorage.getItem('route2gpx_routes');
+            if (savedRoutes) {
+                try {
+                    const routeData = JSON.parse(savedRoutes);
+                    routeData.forEach(data => {
+                        restoreRoute(data);
+                    });
+                    updateBulkButtons();
+                    if (routes.length > 0) {
+                        showStatus(`Restored ${routes.length} route(s) from previous session`);
+                    }
+                } catch (e) {
+                    console.error('Failed to restore routes:', e);
+                }
+            }
+        }
+
+        function saveToStorage() {
+            // API Key
+            localStorage.setItem('route2gpx_apiKey', document.getElementById('apiKey').value);
+            
+            // Distance unit
+            localStorage.setItem('route2gpx_unit', distanceUnit);
+
+            // Routes (without Leaflet objects)
+            const routeData = routes.map(r => ({
+                id: r.id,
+                name: r.name,
+                origin: r.origin,
+                destination: r.destination,
+                stops: r.stops,
+                travelMode: r.travelMode,
+                color: r.color,
+                coordinates: r.coordinates,
+                distance: r.distance,
+                duration: r.duration
+            }));
+            localStorage.setItem('route2gpx_routes', JSON.stringify(routeData));
+        }
+
+        function restoreRoute(data) {
+            const polylineLayer = L.polyline(data.coordinates, {
+                color: data.color,
+                weight: 4,
+                opacity: 0.8
+            }).addTo(map);
+
+            const markers = createRouteMarkers(data.coordinates, data.color);
+
+            const route = {
+                ...data,
+                polylineLayer,
+                markers
+            };
+            routes.push(route);
+            renderRoutesList();
+        }
+
+        // ============ Custom Markers ============
+        function createMarkerIcon(type, number = null) {
+            let html = '';
+            if (type === 'start') {
+                html = '<div class="marker-icon marker-start"><span>A</span></div>';
+            } else if (type === 'end') {
+                html = '<div class="marker-icon marker-end"><span>B</span></div>';
+            } else if (type === 'waypoint') {
+                html = `<div class="marker-number">${number}</div>`;
+            }
+
+            return L.divIcon({
+                html: html,
+                className: 'custom-marker',
+                iconSize: [32, 32],
+                iconAnchor: type === 'waypoint' ? [12, 12] : [16, 32]
+            });
+        }
+
+        function createRouteMarkers(coordinates, color) {
+            const markers = [];
+            
+            // Start marker
+            const startMarker = L.marker(coordinates[0], {
+                icon: createMarkerIcon('start')
+            }).addTo(map);
+            markers.push(startMarker);
+
+            // End marker
+            const endMarker = L.marker(coordinates[coordinates.length - 1], {
+                icon: createMarkerIcon('end')
+            }).addTo(map);
+            markers.push(endMarker);
+
+            return markers;
+        }
+
+        function updatePreviewMarkers() {
+            // Clear existing preview markers
+            previewMarkers.forEach(m => map.removeLayer(m));
+            previewMarkers = [];
+
+            const origin = document.getElementById('origin').value.trim();
+            const destination = document.getElementById('destination').value.trim();
+            const stops = getStops();
+
+            // Only show preview markers for lat,lng inputs
+            const latLngRegex = /^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/;
+
+            if (origin) {
+                const match = origin.match(latLngRegex);
+                if (match) {
+                    const marker = L.marker([parseFloat(match[1]), parseFloat(match[2])], {
+                        icon: createMarkerIcon('start'),
+                        opacity: 0.7
+                    }).addTo(map);
+                    previewMarkers.push(marker);
+                }
+            }
+
+            if (destination) {
+                const match = destination.match(latLngRegex);
+                if (match) {
+                    const marker = L.marker([parseFloat(match[1]), parseFloat(match[2])], {
+                        icon: createMarkerIcon('end'),
+                        opacity: 0.7
+                    }).addTo(map);
+                    previewMarkers.push(marker);
+                }
+            }
+
+            stops.forEach((stop, idx) => {
+                const match = stop.match(latLngRegex);
+                if (match) {
+                    const marker = L.marker([parseFloat(match[1]), parseFloat(match[2])], {
+                        icon: createMarkerIcon('waypoint', idx + 1),
+                        opacity: 0.7
+                    }).addTo(map);
+                    previewMarkers.push(marker);
+                }
+            });
+        }
+
+        // ============ Click-to-Add Mode ============
+        function toggleClickMode() {
+            if (clickMode) {
+                exitClickMode();
+            } else {
+                enterClickMode('origin');
+            }
+        }
+
+        function enterClickMode(target) {
+            clickMode = target;
+            const btn = document.getElementById('clickModeBtn');
+            const indicator = document.getElementById('mapModeIndicator');
+            const targetSpan = document.getElementById('clickModeTarget');
+
+            btn.classList.add('active');
+            btn.setAttribute('aria-pressed', 'true');
+            indicator.style.display = 'block';
+
+            const labels = {
+                'origin': 'Set Origin',
+                'destination': 'Set Destination',
+                'waypoint': 'Add Waypoint'
+            };
+            targetSpan.textContent = labels[target] || target;
+
+            document.getElementById('map').style.cursor = 'crosshair';
+        }
+
+        function exitClickMode() {
+            clickMode = null;
+            const btn = document.getElementById('clickModeBtn');
+            const indicator = document.getElementById('mapModeIndicator');
+
+            btn.classList.remove('active');
+            btn.setAttribute('aria-pressed', 'false');
+            indicator.style.display = 'none';
+            document.getElementById('map').style.cursor = '';
+        }
+
+        function advanceClickMode() {
+            const origin = document.getElementById('origin').value.trim();
+            const destination = document.getElementById('destination').value.trim();
+
+            if (!origin) {
+                enterClickMode('origin');
+            } else if (!destination) {
+                enterClickMode('destination');
+            } else {
+                enterClickMode('waypoint');
+            }
+        }
+
+        map.on('click', function(e) {
+            if (!clickMode) return;
+
+            const latLng = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+
+            if (clickMode === 'origin') {
+                document.getElementById('origin').value = latLng;
+                advanceClickMode();
+            } else if (clickMode === 'destination') {
+                document.getElementById('destination').value = latLng;
+                advanceClickMode();
+            } else if (clickMode === 'waypoint') {
+                addStop(latLng);
+                // Stay in waypoint mode for adding more
+            }
+
+            updatePreviewMarkers();
+        });
+
+        // ============ Help Toggle ============
+        function toggleHelp() {
+            const content = document.getElementById('helpContent');
+            const btn = document.querySelector('.help-toggle');
+            const isVisible = content.classList.toggle('visible');
+            btn.setAttribute('aria-expanded', isVisible);
+        }
+
+        // ============ Geolocation ============
+        function locateMe() {
+            if (!navigator.geolocation) {
+                showStatus('Geolocation is not supported by your browser', true);
+                return;
+            }
+
+            showStatus('Getting your location...');
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const { latitude, longitude } = position.coords;
+                    map.setView([latitude, longitude], 14);
+                    showStatus('Centered on your location');
+                },
+                (error) => {
+                    showStatus('Unable to get your location: ' + error.message, true);
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        }
+
+        function useMyLocation(field) {
+            if (!navigator.geolocation) {
+                showStatus('Geolocation is not supported by your browser', true);
+                return;
+            }
+
+            showStatus('Getting your location...');
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const { latitude, longitude } = position.coords;
+                    const latLng = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+                    document.getElementById(field).value = latLng;
+                    updatePreviewMarkers();
+                    showStatus('Location set');
+                },
+                (error) => {
+                    showStatus('Unable to get your location: ' + error.message, true);
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        }
+
+        // ============ Polyline Decoder ============
         function decodePolyline(encoded) {
             const points = [];
             let index = 0, lat = 0, lng = 0;
@@ -347,19 +1277,46 @@
             return points;
         }
 
-        // Add waypoint input
-        function addStop() {
+        // ============ Waypoint Management ============
+        function addStop(value = '') {
             const container = document.getElementById('stopsContainer');
+            const stopNumber = container.children.length + 1;
+            
             const row = document.createElement('div');
             row.className = 'stop-row';
+            row.setAttribute('role', 'listitem');
             row.innerHTML = `
-                <input type="text" class="stop-input" placeholder="Waypoint address" />
-                <button onclick="this.parentElement.remove()">✕</button>
+                <span class="stop-number" aria-hidden="true">${stopNumber}</span>
+                <input type="text" class="stop-input" placeholder="Waypoint ${stopNumber}" 
+                       value="${escapeHtml(value)}" aria-label="Waypoint ${stopNumber}" />
+                <button type="button" onclick="removeStop(this)" aria-label="Remove waypoint ${stopNumber}">✕</button>
             `;
             container.appendChild(row);
+            
+            if (!value) {
+                row.querySelector('input').focus();
+            }
+            
+            updatePreviewMarkers();
+            renumberStops();
         }
 
-        // Get all waypoints
+        function removeStop(btn) {
+            btn.closest('.stop-row').remove();
+            renumberStops();
+            updatePreviewMarkers();
+        }
+
+        function renumberStops() {
+            const rows = document.querySelectorAll('.stop-row');
+            rows.forEach((row, idx) => {
+                const num = idx + 1;
+                row.querySelector('.stop-number').textContent = num;
+                row.querySelector('input').setAttribute('aria-label', `Waypoint ${num}`);
+                row.querySelector('input').placeholder = `Waypoint ${num}`;
+            });
+        }
+
         function getStops() {
             const inputs = document.querySelectorAll('.stop-input');
             return Array.from(inputs)
@@ -367,18 +1324,52 @@
                 .filter(val => val !== '');
         }
 
-        // Show status message
+        function reverseRoute() {
+            const originInput = document.getElementById('origin');
+            const destInput = document.getElementById('destination');
+            
+            // Swap origin and destination
+            const temp = originInput.value;
+            originInput.value = destInput.value;
+            destInput.value = temp;
+
+            // Reverse waypoints
+            const stops = getStops();
+            stops.reverse();
+            
+            const container = document.getElementById('stopsContainer');
+            container.innerHTML = '';
+            stops.forEach(stop => addStop(stop));
+
+            updatePreviewMarkers();
+            showStatus('Route reversed');
+        }
+
+        // ============ Distance Unit ============
+        function setUnit(unit, save = true) {
+            distanceUnit = unit;
+            document.getElementById('unitKm').classList.toggle('active', unit === 'km');
+            document.getElementById('unitMi').classList.toggle('active', unit === 'mi');
+            document.getElementById('unitKm').setAttribute('aria-checked', unit === 'km');
+            document.getElementById('unitMi').setAttribute('aria-checked', unit === 'mi');
+            
+            renderRoutesList();
+            if (save) saveToStorage();
+        }
+
+        // ============ Status Messages ============
         function showStatus(message, isError = false) {
             const status = document.getElementById('status');
             status.textContent = message;
             status.className = 'status ' + (isError ? 'error' : 'success');
             status.style.display = 'block';
+            
             if (!isError) {
                 setTimeout(() => { status.style.display = 'none'; }, 3000);
             }
         }
 
-        // Parse location (address or lat,lng)
+        // ============ Location Parsing ============
         function parseLocation(input) {
             const latLngMatch = input.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
             if (latLngMatch) {
@@ -394,27 +1385,40 @@
             return { address: input };
         }
 
-        // Get route from Google Routes API
+        // ============ Get Route from API ============
         async function getRoute() {
             const apiKey = document.getElementById('apiKey').value.trim();
             const origin = document.getElementById('origin').value.trim();
             const destination = document.getElementById('destination').value.trim();
             const travelMode = document.getElementById('travelMode').value;
             const color = document.getElementById('routeColor').value;
+            const customName = document.getElementById('routeName').value.trim();
             const stops = getStops();
+            
+            // Auto-advance to next color for next route
+            const nextColorIdx = (selectedColorIndex + 1) % COLOR_PALETTE.length;
+            selectedColorIndex = nextColorIdx;
 
+            // Validation
             if (!apiKey) {
                 showStatus('Please enter your Google Routes API key', true);
+                document.getElementById('apiKey').focus();
                 return;
             }
-            if (!origin || !destination) {
-                showStatus('Please enter origin and destination', true);
+            if (!origin) {
+                showStatus('Please enter an origin', true);
+                document.getElementById('origin').focus();
+                return;
+            }
+            if (!destination) {
+                showStatus('Please enter a destination', true);
+                document.getElementById('destination').focus();
                 return;
             }
 
             const btn = document.getElementById('getRouteBtn');
             btn.disabled = true;
-            btn.textContent = 'Loading...';
+            btn.innerHTML = '<span class="spinner"></span>Finding route...';
 
             try {
                 const payload = {
@@ -424,7 +1428,6 @@
                     polylineQuality: 'HIGH_QUALITY'
                 };
 
-                // Add intermediates (waypoints) if any
                 if (stops.length > 0) {
                     payload.intermediates = stops.map(stop => parseLocation(stop));
                 }
@@ -442,11 +1445,17 @@
                 const data = await response.json();
 
                 if (!response.ok) {
-                    throw new Error(data.error?.message || 'API request failed');
+                    const errorMsg = data.error?.message || 'API request failed';
+                    if (errorMsg.includes('API key')) {
+                        throw new Error('Invalid API key. Please check your Google Routes API key.');
+                    } else if (response.status === 429) {
+                        throw new Error('Rate limited. Please wait a moment and try again.');
+                    }
+                    throw new Error(errorMsg);
                 }
 
                 if (!data.routes || data.routes.length === 0) {
-                    throw new Error('No route found');
+                    throw new Error('No route found between these locations. Try different addresses or travel mode.');
                 }
 
                 const encodedPolyline = data.routes[0].polyline.encodedPolyline;
@@ -454,16 +1463,21 @@
                 const distance = data.routes[0].distanceMeters;
                 const duration = data.routes[0].duration;
 
-                // Create route object
+                // Generate route name
                 const routeId = Date.now();
-                const routeName = `${origin} → ${destination}`;
+                const routeName = customName || `${truncate(origin, 20)} → ${truncate(destination, 20)}`;
+
+                // Create polyline
                 const polylineLayer = L.polyline(coordinates, {
                     color: color,
                     weight: 4,
                     opacity: 0.8
                 }).addTo(map);
 
-                // Fit map to route
+                // Create markers
+                const markers = createRouteMarkers(coordinates, color);
+
+                // Fit map
                 map.fitBounds(polylineLayer.getBounds(), { padding: [50, 50] });
 
                 // Store route
@@ -477,36 +1491,54 @@
                     color,
                     coordinates,
                     polylineLayer,
+                    markers,
                     distance,
-                    duration
+                    duration,
+                    visible: true
                 };
                 routes.push(route);
+
+                // Clear preview markers
+                previewMarkers.forEach(m => map.removeLayer(m));
+                previewMarkers = [];
 
                 // Update UI
                 renderRoutesList();
                 updateBulkButtons();
-                showStatus('Route added successfully!');
+                saveToStorage();
+                showStatus(`Route added: ${formatDistance(distance)}, ${formatDuration(duration)}`);
 
-                // Clear stops
+                // Clear form for next route
                 document.getElementById('stopsContainer').innerHTML = '';
+                document.getElementById('routeName').value = '';
+                exitClickMode();
+                
+                // Update color picker to next color
+                initColorPresets();
 
             } catch (error) {
                 showStatus(error.message, true);
             } finally {
                 btn.disabled = false;
-                btn.textContent = 'Get Route';
+                btn.innerHTML = 'Get Route';
             }
         }
 
-        // Format distance
+        // ============ Formatting Helpers ============
+        function truncate(str, len) {
+            return str.length > len ? str.substring(0, len) + '...' : str;
+        }
+
         function formatDistance(meters) {
-            if (meters >= 1000) {
-                return (meters / 1000).toFixed(1) + ' km';
+            if (distanceUnit === 'mi') {
+                const miles = meters / 1609.34;
+                return miles >= 10 ? miles.toFixed(0) + ' mi' : miles.toFixed(1) + ' mi';
+            } else {
+                const km = meters / 1000;
+                return km >= 10 ? km.toFixed(0) + ' km' : km.toFixed(1) + ' km';
             }
-            return meters + ' m';
         }
 
-        // Format duration
         function formatDuration(durationStr) {
             const seconds = parseInt(durationStr.replace('s', ''));
             const hours = Math.floor(seconds / 3600);
@@ -517,106 +1549,12 @@
             return `${minutes}m`;
         }
 
-        // Render routes list
-        function renderRoutesList() {
-            const list = document.getElementById('routesList');
-            list.innerHTML = routes.map(route => `
-                <div class="route-item" style="border-left-color: ${route.color}">
-                    <div class="route-item-header">
-                        <div>
-                            <div class="route-item-title">${escapeHtml(route.name)}</div>
-                            <div class="route-item-meta">
-                                ${route.travelMode} • ${formatDistance(route.distance)} • ${formatDuration(route.duration)}
-                                ${route.stops.length > 0 ? ` • ${route.stops.length} stop(s)` : ''}
-                            </div>
-                        </div>
-                    </div>
-                    <div class="route-item-actions">
-                        <button class="btn-outline" onclick="zoomToRoute(${route.id})">📍 Zoom</button>
-                        <button class="btn-outline" onclick="downloadRoute(${route.id})">📥 GPX</button>
-                        <button class="btn-secondary" onclick="removeRoute(${route.id})">🗑️</button>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        // Escape HTML
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
         }
 
-        // Update bulk action buttons
-        function updateBulkButtons() {
-            const hasRoutes = routes.length > 0;
-            document.getElementById('downloadAllBtn').disabled = !hasRoutes;
-            document.getElementById('clearAllBtn').disabled = !hasRoutes;
-        }
-
-        // Zoom to route
-        function zoomToRoute(id) {
-            const route = routes.find(r => r.id === id);
-            if (route) {
-                map.fitBounds(route.polylineLayer.getBounds(), { padding: [50, 50] });
-            }
-        }
-
-        // Remove route
-        function removeRoute(id) {
-            const index = routes.findIndex(r => r.id === id);
-            if (index !== -1) {
-                map.removeLayer(routes[index].polylineLayer);
-                routes.splice(index, 1);
-                renderRoutesList();
-                updateBulkButtons();
-            }
-        }
-
-        // Clear all routes
-        function clearAllRoutes() {
-            if (!confirm('Remove all routes?')) return;
-            routes.forEach(route => map.removeLayer(route.polylineLayer));
-            routes = [];
-            renderRoutesList();
-            updateBulkButtons();
-        }
-
-        // Generate GPX content
-        function generateGPX(route) {
-            const now = new Date();
-            const lines = [
-                '<?xml version="1.0" encoding="UTF-8"?>',
-                '<gpx version="1.1" creator="route2gpx-web" xmlns="http://www.topografix.com/GPX/1/1">',
-                `  <metadata>`,
-                `    <name>${escapeXml(route.name)}</name>`,
-                `    <time>${now.toISOString()}</time>`,
-                `  </metadata>`,
-                `  <trk>`,
-                `    <name>${escapeXml(route.name)}</name>`,
-                `    <trkseg>`
-            ];
-
-            route.coordinates.forEach(([lat, lng], idx) => {
-                const time = new Date(now.getTime() + idx * 60000).toISOString();
-                lines.push(
-                    `      <trkpt lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}">`,
-                    `        <ele>0</ele>`,
-                    `        <time>${time}</time>`,
-                    `      </trkpt>`
-                );
-            });
-
-            lines.push(
-                `    </trkseg>`,
-                `  </trk>`,
-                `</gpx>`
-            );
-
-            return lines.join('\n');
-        }
-
-        // Escape XML special characters
         function escapeXml(text) {
             return text
                 .replace(/&/g, '&amp;')
@@ -626,22 +1564,190 @@
                 .replace(/'/g, '&apos;');
         }
 
-        // Sanitize filename
         function sanitizeFilename(s) {
-            return s.replace(/[^a-zA-Z0-9_\-\s]/g, '_').substring(0, 100);
+            return s.replace(/[^a-zA-Z0-9_\-\s]/g, '_').substring(0, 50);
         }
 
-        // Download single route
+        // ============ Route List Rendering ============
+        function renderRoutesList() {
+            const list = document.getElementById('routesList');
+            
+            if (routes.length === 0) {
+                list.innerHTML = '<div style="color: #666; text-align: center; padding: 20px;">No routes yet. Create one above!</div>';
+                return;
+            }
+
+            list.innerHTML = routes.map((route, idx) => `
+                <div class="route-item" style="border-left-color: ${route.color}" role="listitem"
+                     aria-label="Route ${idx + 1}: ${escapeHtml(route.name)}">
+                    <div class="route-item-header">
+                        <div>
+                            <div class="route-item-title">${escapeHtml(route.name)}</div>
+                            <div class="route-item-meta">
+                                ${getModeEmoji(route.travelMode)} ${route.travelMode.toLowerCase()} • 
+                                ${formatDistance(route.distance)} • ${formatDuration(route.duration)}
+                                ${route.stops.length > 0 ? ` • ${route.stops.length} stop(s)` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="route-item-actions">
+                        <button class="btn-outline btn-small" onclick="zoomToRoute(${route.id})"
+                                aria-label="Zoom to route ${escapeHtml(route.name)}"
+                                title="Zoom map to fit this route">
+                            📍 Zoom
+                        </button>
+                        <button class="btn-outline btn-small" onclick="toggleRouteVisibility(${route.id})"
+                                aria-label="${route.visible ? 'Hide' : 'Show'} route"
+                                title="${route.visible ? 'Hide this route from the map' : 'Show this route on the map'}">
+                            ${route.visible ? '👁️ Hide' : '👁️‍🗨️ Show'}
+                        </button>
+                        <button class="btn-outline btn-small" onclick="downloadRoute(${route.id})"
+                                aria-label="Download GPX for ${escapeHtml(route.name)}"
+                                title="Download as GPX file for GPS devices">
+                            📥 GPX
+                        </button>
+                        <button class="btn-secondary btn-small" onclick="removeRoute(${route.id})"
+                                aria-label="Delete route ${escapeHtml(route.name)}"
+                                title="Remove this route permanently">
+                            🗑️
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function getModeEmoji(mode) {
+            const emojis = { DRIVE: '🚗', TRANSIT: '🚌', BICYCLE: '🚴', WALK: '🚶' };
+            return emojis[mode] || '📍';
+        }
+
+        // ============ Route Actions ============
+        function updateBulkButtons() {
+            const hasRoutes = routes.length > 0;
+            document.getElementById('downloadAllBtn').disabled = !hasRoutes;
+            document.getElementById('clearAllBtn').disabled = !hasRoutes;
+        }
+
+        function zoomToRoute(id) {
+            const route = routes.find(r => r.id === id);
+            if (route) {
+                map.fitBounds(route.polylineLayer.getBounds(), { padding: [50, 50] });
+            }
+        }
+
+        function toggleRouteVisibility(id) {
+            const route = routes.find(r => r.id === id);
+            if (route) {
+                route.visible = !route.visible;
+                if (route.visible) {
+                    route.polylineLayer.addTo(map);
+                    route.markers.forEach(m => m.addTo(map));
+                } else {
+                    map.removeLayer(route.polylineLayer);
+                    route.markers.forEach(m => map.removeLayer(m));
+                }
+                renderRoutesList();
+            }
+        }
+
+        function removeRoute(id) {
+            const index = routes.findIndex(r => r.id === id);
+            if (index !== -1) {
+                map.removeLayer(routes[index].polylineLayer);
+                routes[index].markers.forEach(m => map.removeLayer(m));
+                routes.splice(index, 1);
+                renderRoutesList();
+                updateBulkButtons();
+                saveToStorage();
+            }
+        }
+
+        function clearAllRoutes() {
+            if (!confirm('Remove all routes? This cannot be undone.')) return;
+            routes.forEach(route => {
+                map.removeLayer(route.polylineLayer);
+                route.markers.forEach(m => map.removeLayer(m));
+            });
+            routes = [];
+            renderRoutesList();
+            updateBulkButtons();
+            saveToStorage();
+        }
+
+        // ============ GPX Generation ============
+        function generateGPX(route) {
+            const now = new Date();
+            const coords = route.coordinates;
+            
+            // Calculate bounds
+            const lats = coords.map(c => c[0]);
+            const lngs = coords.map(c => c[1]);
+            const bounds = {
+                minlat: Math.min(...lats).toFixed(6),
+                maxlat: Math.max(...lats).toFixed(6),
+                minlon: Math.min(...lngs).toFixed(6),
+                maxlon: Math.max(...lngs).toFixed(6)
+            };
+
+            const lines = [
+                '<?xml version="1.0" encoding="UTF-8"?>',
+                '<gpx version="1.1" creator="route2gpx-web" xmlns="http://www.topografix.com/GPX/1/1">',
+                '  <metadata>',
+                `    <name>${escapeXml(route.name)}</name>`,
+                `    <desc>Route from ${escapeXml(route.origin)} to ${escapeXml(route.destination)} via ${route.travelMode.toLowerCase()}</desc>`,
+                `    <time>${now.toISOString()}</time>`,
+                `    <bounds minlat="${bounds.minlat}" minlon="${bounds.minlon}" maxlat="${bounds.maxlat}" maxlon="${bounds.maxlon}"/>`,
+                '  </metadata>'
+            ];
+
+            // Add waypoints for origin, stops, and destination
+            lines.push(`  <wpt lat="${coords[0][0].toFixed(6)}" lon="${coords[0][1].toFixed(6)}">`);
+            lines.push(`    <name>Start: ${escapeXml(route.origin)}</name>`);
+            lines.push('  </wpt>');
+
+            route.stops.forEach((stop, idx) => {
+                // Approximate waypoint location (we don't have exact coords, use middle of route)
+                const approxIdx = Math.floor((idx + 1) * coords.length / (route.stops.length + 2));
+                const coord = coords[Math.min(approxIdx, coords.length - 1)];
+                lines.push(`  <wpt lat="${coord[0].toFixed(6)}" lon="${coord[1].toFixed(6)}">`);
+                lines.push(`    <name>Stop ${idx + 1}: ${escapeXml(stop)}</name>`);
+                lines.push('  </wpt>');
+            });
+
+            lines.push(`  <wpt lat="${coords[coords.length - 1][0].toFixed(6)}" lon="${coords[coords.length - 1][1].toFixed(6)}">`);
+            lines.push(`    <name>End: ${escapeXml(route.destination)}</name>`);
+            lines.push('  </wpt>');
+
+            // Add track
+            lines.push('  <trk>');
+            lines.push(`    <name>${escapeXml(route.name)}</name>`);
+            lines.push(`    <type>${route.travelMode}</type>`);
+            lines.push('    <trkseg>');
+
+            coords.forEach(([lat, lng], idx) => {
+                const time = new Date(now.getTime() + idx * 60000).toISOString();
+                lines.push(`      <trkpt lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}">`);
+                lines.push('        <ele>0</ele>');
+                lines.push(`        <time>${time}</time>`);
+                lines.push('      </trkpt>');
+            });
+
+            lines.push('    </trkseg>');
+            lines.push('  </trk>');
+            lines.push('</gpx>');
+
+            return lines.join('\n');
+        }
+
         function downloadRoute(id) {
             const route = routes.find(r => r.id === id);
             if (!route) return;
 
             const gpx = generateGPX(route);
-            const filename = `${sanitizeFilename(route.travelMode.toLowerCase())}-route_${sanitizeFilename(route.origin)}-${sanitizeFilename(route.destination)}.gpx`;
+            const filename = `${sanitizeFilename(route.travelMode.toLowerCase())}_${sanitizeFilename(route.name)}.gpx`;
             downloadFile(gpx, filename, 'application/gpx+xml');
         }
 
-        // Download all routes
         function downloadAllRoutes() {
             if (routes.length === 0) return;
 
@@ -650,13 +1756,12 @@
                 return;
             }
 
-            // Download as individual files with slight delay
+            // Download each with a slight delay
             routes.forEach((route, idx) => {
-                setTimeout(() => downloadRoute(route.id), idx * 200);
+                setTimeout(() => downloadRoute(route.id), idx * 300);
             });
         }
 
-        // Download file helper
         function downloadFile(content, filename, mimeType) {
             const blob = new Blob([content], { type: mimeType });
             const url = URL.createObjectURL(blob);
@@ -669,12 +1774,85 @@
             URL.revokeObjectURL(url);
         }
 
-        // Enter key to submit
-        document.querySelectorAll('input[type="text"]').forEach(input => {
-            input.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') getRoute();
+        // ============ Keyboard Navigation ============
+        document.addEventListener('keydown', function(e) {
+            // Escape to exit click mode
+            if (e.key === 'Escape' && clickMode) {
+                exitClickMode();
+                return;
+            }
+
+            // Ctrl+Enter to get route from anywhere
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                getRoute();
+                return;
+            }
+
+            // Enter in form fields
+            if (e.key === 'Enter' && e.target.matches('input[type="text"]')) {
+                e.preventDefault();
+                getRoute();
+                return;
+            }
+        });
+
+        // Update preview markers on input change
+        ['origin', 'destination'].forEach(id => {
+            document.getElementById(id).addEventListener('input', updatePreviewMarkers);
+        });
+
+        // Save API key on change
+        document.getElementById('apiKey').addEventListener('change', saveToStorage);
+
+        // ============ Color Presets ============
+        function initColorPresets() {
+            const container = document.getElementById('colorPresets');
+            container.innerHTML = COLOR_PALETTE.map((color, idx) => `
+                <button type="button" class="color-preset ${idx === selectedColorIndex ? 'selected' : ''}" 
+                        style="background: ${color}" 
+                        onclick="selectColor(${idx})" 
+                        role="radio" 
+                        aria-checked="${idx === selectedColorIndex}"
+                        aria-label="Color ${idx + 1}: ${color}"
+                        title="${color}"></button>
+            `).join('');
+            
+            document.getElementById('routeColor').value = COLOR_PALETTE[selectedColorIndex];
+        }
+
+        function selectColor(idx) {
+            selectedColorIndex = idx;
+            const color = COLOR_PALETTE[idx];
+            document.getElementById('routeColor').value = color;
+            
+            // Update selected state
+            document.querySelectorAll('.color-preset').forEach((btn, i) => {
+                btn.classList.toggle('selected', i === idx);
+                btn.setAttribute('aria-checked', i === idx);
+            });
+        }
+
+        function getNextColor() {
+            // Cycle through palette for each new route
+            const color = COLOR_PALETTE[selectedColorIndex];
+            selectedColorIndex = (selectedColorIndex + 1) % COLOR_PALETTE.length;
+            initColorPresets();
+            return color;
+        }
+
+        // Custom color picker deselects presets
+        document.getElementById('routeColor').addEventListener('input', function() {
+            document.querySelectorAll('.color-preset').forEach(btn => {
+                btn.classList.remove('selected');
+                btn.setAttribute('aria-checked', 'false');
             });
         });
+
+        // ============ Initialize ============
+        initColorPresets();
+        loadFromStorage();
+        renderRoutesList();
     </script>
 </body>
 </html>
