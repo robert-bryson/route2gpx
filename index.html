@@ -643,6 +643,133 @@
             font-size: 0.75rem;
         }
 
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            padding: 20px;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s, visibility 0.2s;
+        }
+
+        .modal-overlay.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 420px;
+            width: 100%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            border: 1px solid #333;
+        }
+
+        .modal h2 {
+            color: #00d4ff;
+            font-size: 1.2rem;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .modal p {
+            color: #aaa;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            margin-bottom: 16px;
+        }
+
+        .modal .privacy-note {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 16px;
+            font-size: 0.8rem;
+            color: #22c55e;
+        }
+
+        .modal .form-group {
+            margin-bottom: 16px;
+        }
+
+        .modal .btn-row {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        .modal .help-link {
+            display: block;
+            margin-top: 12px;
+            text-align: center;
+        }
+
+        /* API Key Status */
+        .api-key-status {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #0f3460;
+            border-radius: 6px;
+            padding: 10px 12px;
+        }
+
+        .api-key-status .status-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .api-key-status .status-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+
+        .api-key-status .status-icon.valid {
+            background: #22c55e;
+        }
+
+        .api-key-status .status-icon.missing {
+            background: #e94560;
+        }
+
+        .api-key-status .status-text {
+            font-size: 0.85rem;
+        }
+
+        .api-key-status .status-text.valid {
+            color: #22c55e;
+        }
+
+        .api-key-status .status-text.missing {
+            color: #e94560;
+        }
+
+        .api-key-status button {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            min-height: 32px;
+        }
+
         /* Visually hidden for screen readers */
         .sr-only {
             position: absolute;
@@ -715,44 +842,40 @@
         </div>
         
         <section class="api-key-section" aria-labelledby="api-key-label">
-            <label id="api-key-label" for="apiKey">
-                Google Routes API Key
+            <label id="api-key-label" style="margin-bottom: 6px; display: block;">
+                API Key
                 <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about API key">
                     ?
                     <span class="tooltip-text">
-                        <strong>Your key stays private</strong><br>
-                        Your API key is stored only in your browser and sent directly to Google — never to any other server. We cannot see or access your key.
+                        <strong>🔒 Your key stays private</strong><br><br>
+                        Your API key is stored only in your browser's localStorage and sent directly to Google — never to any other server. This app has no backend; we cannot see or access your key.
                     </span>
                 </span>
             </label>
-            <input type="password" id="apiKey" placeholder="Enter your API key" 
-                   aria-describedby="api-key-hint" autocomplete="off"
-                   title="Your Google Routes API key. Stored securely in your browser only." />
-            <div id="api-key-hint" class="keyboard-hint">
-                🔐 Stored locally in your browser only • 
-                <a href="https://developers.google.com/maps/documentation/routes/get-api-key" 
-                   target="_blank" rel="noopener noreferrer" class="help-link"
-                   title="Open Google's guide to creating a Routes API key">
-                   Get an API key →
-                </a>
+            <div class="api-key-status" id="apiKeyStatus">
+                <div class="status-left">
+                    <span class="status-icon missing" id="apiKeyIcon">✗</span>
+                    <span class="status-text missing" id="apiKeyText">No API key</span>
+                </div>
+                <button type="button" class="btn-outline btn-small" onclick="openApiKeyModal()" id="apiKeyBtn">
+                    Add Key
+                </button>
             </div>
         </section>
 
         <main id="main-form" role="main">
             <div class="form-group">
                 <label for="routeName">
-                    Route Name (optional)
+                    Route Name
                     <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about route name">
                         ?
                         <span class="tooltip-text">
-                            Give your route a memorable name. This will appear in the GPX file and the route list. If left blank, a name is auto-generated from origin/destination.
+                            Give your route a memorable name for the GPX file and route list. If left blank, a name is auto-generated from origin → destination.
                         </span>
                     </span>
                 </label>
-                <input type="text" id="routeName" placeholder="My awesome route" 
-                       aria-describedby="route-name-hint"
-                       title="Custom name for your route (used in GPX filename)" />
-                <div id="route-name-hint" class="keyboard-hint">Used in GPX file • Auto-generated if blank</div>
+                <input type="text" id="routeName" placeholder="Optional - auto-generated if blank" 
+                       title="Custom name for your route" />
             </div>
 
             <div class="form-group">
@@ -761,24 +884,24 @@
                     <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about origin">
                         ?
                         <span class="tooltip-text">
-                            Enter a street address, city name, landmark, or coordinates (lat, lng). Examples:<br>
-                            • "123 Main St, NYC"<br>
-                            • "Eiffel Tower, Paris"<br>
-                            • "40.7128, -74.0060"
+                            <strong>Accepted formats:</strong><br>
+                            • Street address: "123 Main St, NYC"<br>
+                            • Place name: "Eiffel Tower, Paris"<br>
+                            • Coordinates: "40.7128, -74.0060"<br><br>
+                            📍 button uses your GPS location<br>
+                            ✚ button lets you click the map
                         </span>
                     </span>
                 </label>
                 <div class="input-with-btn">
                     <input type="text" id="origin" placeholder="Address, place, or lat,lng" 
-                           aria-describedby="origin-hint"
-                           title="Starting point: address, place name, or coordinates" />
+                           title="Starting point" />
                     <button type="button" class="btn-icon btn-outline" onclick="useMyLocation('origin')" 
                             aria-label="Use my current location as origin" 
-                            title="Use your current GPS location as the starting point">
+                            title="Use GPS location">
                         📍
                     </button>
                 </div>
-                <div id="origin-hint" class="keyboard-hint">📍 = use GPS • Or click ✚ on map to select</div>
             </div>
 
             <div class="form-group">
@@ -787,30 +910,28 @@
                     <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about destination">
                         ?
                         <span class="tooltip-text">
-                            Where you want to end up. Same format as origin — address, place name, or lat,lng coordinates.
+                            Same formats as origin — address, place name, or coordinates.
                         </span>
                     </span>
                 </label>
                 <div class="input-with-btn">
                     <input type="text" id="destination" placeholder="Address, place, or lat,lng" 
-                           aria-describedby="dest-hint"
-                           title="End point: address, place name, or coordinates" />
+                           title="End point" />
                     <button type="button" class="btn-icon btn-outline" onclick="useMyLocation('destination')" 
                             aria-label="Use my current location as destination" 
-                            title="Use your current GPS location as the end point">
+                            title="Use GPS location">
                         📍
                     </button>
                 </div>
-                <div id="dest-hint" class="keyboard-hint">📍 = use GPS • Or click ✚ on map to select</div>
             </div>
 
             <div class="form-group">
                 <label id="waypoints-label">
-                    Waypoints (optional)
+                    Waypoints
                     <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about waypoints">
                         ?
                         <span class="tooltip-text">
-                            Add intermediate stops along your route. The route will pass through each waypoint in order. Great for scenic routes or multi-stop trips.
+                            Add intermediate stops — the route will pass through each in order. Great for scenic routes or multi-stop trips.
                         </span>
                     </span>
                 </label>
@@ -819,54 +940,42 @@
                 <div class="waypoint-buttons">
                     <button type="button" class="btn-outline btn-small" onclick="addStop()" 
                             aria-label="Add a waypoint"
-                            title="Add an intermediate stop along your route">
-                        + Add Waypoint
+                            title="Add a stop along your route">
+                        + Add
                     </button>
                     <button type="button" class="btn-outline btn-small" onclick="reverseRoute()" 
                             aria-label="Reverse the route direction"
-                            title="Swap origin and destination, reverse all waypoints">
+                            title="Swap origin ↔ destination">
                         🔄 Reverse
                     </button>
                 </div>
             </div>
 
-            <div class="form-group">
-                <label for="travelMode">
-                    Travel Mode
-                    <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about travel mode">
-                        ?
-                        <span class="tooltip-text">
-                            <strong>Drive:</strong> Car routes via roads<br>
-                            <strong>Bicycle:</strong> Bike-friendly paths<br>
-                            <strong>Walk:</strong> Pedestrian routes<br>
-                            <strong>Transit:</strong> Public transportation
+            <div class="inline-group">
+                <div class="form-group" style="flex: 2;">
+                    <label for="travelMode">Mode</label>
+                    <select id="travelMode" title="Transportation method">
+                        <option value="DRIVE">🚗 Drive</option>
+                        <option value="BICYCLE">🚴 Bicycle</option>
+                        <option value="WALK">🚶 Walk</option>
+                        <option value="TRANSIT">🚌 Transit</option>
+                    </select>
+                </div>
+                <div class="form-group" style="flex: 3;">
+                    <label>
+                        Color
+                        <span class="info-tooltip" tabindex="0" role="button" aria-label="About colors">
+                            ?
+                            <span class="tooltip-text">
+                                Colors auto-cycle for each new route. Click a preset or use the color picker for custom colors.
+                            </span>
                         </span>
-                    </span>
-                </label>
-                <select id="travelMode" aria-describedby="mode-hint"
-                        title="How you plan to travel this route">
-                    <option value="DRIVE">🚗 Drive</option>
-                    <option value="TRANSIT">🚌 Transit</option>
-                    <option value="BICYCLE">🚴 Bicycle</option>
-                    <option value="WALK">🚶 Walk</option>
-                </select>
-            </div>
-
-            <div class="form-group">
-                <label>
-                    Route Color
-                    <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about route color">
-                        ?
-                        <span class="tooltip-text">
-                            Choose a color to display this route on the map. Helpful when comparing multiple routes. Colors auto-cycle for each new route.
-                        </span>
-                    </span>
-                </label>
-                <div class="color-presets" id="colorPresets" role="radiogroup" aria-label="Route color presets"></div>
-                <div class="inline-group" style="margin-top: 8px;">
-                    <input type="color" id="routeColor" class="color-picker" value="#ff4757" 
-                           aria-label="Custom route color" title="Pick a custom color for this route" />
-                    <span style="font-size: 0.75rem; color: #888; align-self: center;">or pick custom</span>
+                    </label>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <div class="color-presets" id="colorPresets" role="radiogroup" aria-label="Route color presets" style="margin-top: 0;"></div>
+                        <input type="color" id="routeColor" class="color-picker" value="#ff4757" 
+                               aria-label="Custom color" title="Custom color" style="width: 36px; height: 32px;" />
+                    </div>
                 </div>
             </div>
 
@@ -880,11 +989,10 @@
                 </div>
             </div>
 
-            <button id="getRouteBtn" onclick="getRoute()" aria-describedby="route-btn-hint"
-                    title="Calculate route and display on map. Requires origin and destination.">
+            <button id="getRouteBtn" onclick="getRoute()"
+                    title="Calculate route (Enter or ⌘/Ctrl+Enter)">
                 Get Route
             </button>
-            <div id="route-btn-hint" class="keyboard-hint">⏎ Enter in any field • ⌘/Ctrl+Enter from anywhere</div>
 
             <div id="status" class="status" role="status" aria-live="polite" style="display: none;"></div>
         </main>
@@ -972,12 +1080,6 @@
 
         // ============ LocalStorage ============
         function loadFromStorage() {
-            // API Key
-            const savedApiKey = localStorage.getItem('route2gpx_apiKey');
-            if (savedApiKey) {
-                document.getElementById('apiKey').value = savedApiKey;
-            }
-
             // Distance unit
             const savedUnit = localStorage.getItem('route2gpx_unit');
             if (savedUnit) {
@@ -1003,9 +1105,6 @@
         }
 
         function saveToStorage() {
-            // API Key
-            localStorage.setItem('route2gpx_apiKey', document.getElementById('apiKey').value);
-            
             // Distance unit
             localStorage.setItem('route2gpx_unit', distanceUnit);
 
@@ -1206,6 +1305,76 @@
             btn.setAttribute('aria-expanded', isVisible);
         }
 
+        // ============ API Key Modal ============
+        function getApiKey() {
+            return localStorage.getItem('route2gpx_apiKey') || '';
+        }
+
+        function updateApiKeyStatus() {
+            const apiKey = getApiKey();
+            const icon = document.getElementById('apiKeyIcon');
+            const text = document.getElementById('apiKeyText');
+            const btn = document.getElementById('apiKeyBtn');
+
+            if (apiKey) {
+                icon.textContent = '✓';
+                icon.className = 'status-icon valid';
+                text.textContent = 'Key saved';
+                text.className = 'status-text valid';
+                btn.textContent = 'Edit';
+            } else {
+                icon.textContent = '✗';
+                icon.className = 'status-icon missing';
+                text.textContent = 'No API key';
+                text.className = 'status-text missing';
+                btn.textContent = 'Add Key';
+            }
+        }
+
+        function openApiKeyModal() {
+            const modal = document.getElementById('apiKeyModal');
+            const input = document.getElementById('apiKeyInput');
+            input.value = getApiKey();
+            modal.classList.add('visible');
+            input.focus();
+        }
+
+        function closeApiKeyModal() {
+            const modal = document.getElementById('apiKeyModal');
+            modal.classList.remove('visible');
+        }
+
+        function saveApiKey() {
+            const input = document.getElementById('apiKeyInput');
+            const key = input.value.trim();
+            
+            if (key) {
+                localStorage.setItem('route2gpx_apiKey', key);
+                showStatus('API key saved');
+            } else {
+                localStorage.removeItem('route2gpx_apiKey');
+            }
+            
+            updateApiKeyStatus();
+            closeApiKeyModal();
+        }
+
+        // Close modal on Escape or click outside
+        document.getElementById('apiKeyModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeApiKeyModal();
+            }
+        });
+
+        document.getElementById('apiKeyInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                saveApiKey();
+            } else if (e.key === 'Escape') {
+                closeApiKeyModal();
+            }
+        });
+
         // ============ Geolocation ============
         function locateMe() {
             if (!navigator.geolocation) {
@@ -1387,7 +1556,7 @@
 
         // ============ Get Route from API ============
         async function getRoute() {
-            const apiKey = document.getElementById('apiKey').value.trim();
+            const apiKey = getApiKey();
             const origin = document.getElementById('origin').value.trim();
             const destination = document.getElementById('destination').value.trim();
             const travelMode = document.getElementById('travelMode').value;
@@ -1401,8 +1570,8 @@
 
             // Validation
             if (!apiKey) {
-                showStatus('Please enter your Google Routes API key', true);
-                document.getElementById('apiKey').focus();
+                showStatus('API key required', true);
+                openApiKeyModal();
                 return;
             }
             if (!origin) {
@@ -1802,9 +1971,6 @@
             document.getElementById(id).addEventListener('input', updatePreviewMarkers);
         });
 
-        // Save API key on change
-        document.getElementById('apiKey').addEventListener('change', saveToStorage);
-
         // ============ Color Presets ============
         function initColorPresets() {
             const container = document.getElementById('colorPresets');
@@ -1853,6 +2019,40 @@
         initColorPresets();
         loadFromStorage();
         renderRoutesList();
+        updateApiKeyStatus();
     </script>
+
+    <!-- API Key Modal -->
+    <div class="modal-overlay" id="apiKeyModal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal">
+            <h2 id="modal-title">🔑 Google Routes API Key</h2>
+            
+            <div class="privacy-note">
+                <strong>🔒 100% Private & Secure</strong><br>
+                This app runs entirely in your browser — there is no server. Your API key is stored only in localStorage and sent directly to Google. We never see or have access to your key.
+            </div>
+            
+            <p>
+                You need a Google Routes API key to calculate routes. 
+                It only takes a few minutes to set up.
+            </p>
+            
+            <div class="form-group">
+                <label for="apiKeyInput">API Key</label>
+                <input type="password" id="apiKeyInput" placeholder="Paste your API key here" 
+                       autocomplete="off" style="width: 100%;" />
+            </div>
+            
+            <div class="btn-row">
+                <button type="button" class="btn-outline" onclick="closeApiKeyModal()">Cancel</button>
+                <button type="button" onclick="saveApiKey()">Save Key</button>
+            </div>
+            
+            <a href="https://developers.google.com/maps/documentation/routes/get-api-key" 
+               target="_blank" rel="noopener noreferrer" class="help-link">
+               📖 How to get a Google Routes API key →
+            </a>
+        </div>
+    </div>
 </body>
 </html>
