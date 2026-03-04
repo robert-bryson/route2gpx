@@ -17,9 +17,12 @@
     <meta name="twitter:description"
         content="Convert routes to GPX files for GPS devices. Runs entirely in your browser.">
     <link rel="canonical" href="https://route2gpx.rsmb.tv">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://*.basemaps.cartocdn.com https://unpkg.com; connect-src 'self' https://routes.googleapis.com; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'">
     <link rel="icon"
         href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
     <style>
         * {
             box-sizing: border-box;
@@ -1061,6 +1064,12 @@
 </head>
 
 <body>
+    <noscript>
+        <div style="padding: 2rem; text-align: center; font-family: system-ui, sans-serif;">
+            <h1>Route to GPX</h1>
+            <p>This application requires JavaScript to run. Please enable JavaScript in your browser settings.</p>
+        </div>
+    </noscript>
     <a href="#main-form" class="skip-link">Skip to main content</a>
 
     <nav class="sidebar" role="navigation" aria-label="Route controls">
@@ -1260,7 +1269,9 @@
         </div>
     </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"
+        crossorigin="anonymous"></script>
     <script>
         // ============ State ============
         let routes = [];
@@ -1311,16 +1322,16 @@
 
         // ============ LocalStorage ============
         function loadFromStorage() {
-            // Distance unit
-            const savedUnit = localStorage.getItem('route2gpx_unit');
-            if (savedUnit) {
-                setUnit(savedUnit, false);
-            }
+            try {
+                // Distance unit
+                const savedUnit = localStorage.getItem('route2gpx_unit');
+                if (savedUnit) {
+                    setUnit(savedUnit, false);
+                }
 
-            // Saved routes
-            const savedRoutes = localStorage.getItem('route2gpx_routes');
-            if (savedRoutes) {
-                try {
+                // Saved routes
+                const savedRoutes = localStorage.getItem('route2gpx_routes');
+                if (savedRoutes) {
                     const routeData = JSON.parse(savedRoutes);
                     routeData.forEach(data => {
                         restoreRoute(data);
@@ -1329,30 +1340,34 @@
                     if (routes.length > 0) {
                         showStatus(`Restored ${routes.length} route(s) from previous session`);
                     }
-                } catch (e) {
-                    console.error('Failed to restore routes:', e);
                 }
+            } catch (e) {
+                console.error('Failed to restore from storage:', e);
             }
         }
 
         function saveToStorage() {
-            // Distance unit
-            localStorage.setItem('route2gpx_unit', distanceUnit);
+            try {
+                // Distance unit
+                localStorage.setItem('route2gpx_unit', distanceUnit);
 
-            // Routes (without Leaflet objects)
-            const routeData = routes.map(r => ({
-                id: r.id,
-                name: r.name,
-                origin: r.origin,
-                destination: r.destination,
-                stops: r.stops,
-                travelMode: r.travelMode,
-                color: r.color,
-                coordinates: r.coordinates,
-                distance: r.distance,
-                duration: r.duration
-            }));
-            localStorage.setItem('route2gpx_routes', JSON.stringify(routeData));
+                // Routes (without Leaflet objects)
+                const routeData = routes.map(r => ({
+                    id: r.id,
+                    name: r.name,
+                    origin: r.origin,
+                    destination: r.destination,
+                    stops: r.stops,
+                    travelMode: r.travelMode,
+                    color: r.color,
+                    coordinates: r.coordinates,
+                    distance: r.distance,
+                    duration: r.duration
+                }));
+                localStorage.setItem('route2gpx_routes', JSON.stringify(routeData));
+            } catch (e) {
+                console.error('Failed to save to storage:', e);
+            }
         }
 
         function createRoutePopup(route) {
@@ -1369,7 +1384,7 @@
                         <span>⏱️ ${formatDuration(route.duration)}</span>
                     </div>
                     <div class="route-meta">
-                        <span>${getModeEmoji(route.travelMode)} ${route.travelMode.toLowerCase()}</span>
+                        <span>${getModeEmoji(route.travelMode)} ${escapeHtml(route.travelMode.toLowerCase())}</span>
                         ${stopCount > 0 ? `<span>📍 ${stopCount} stop${stopCount > 1 ? 's' : ''}</span>` : ''}
                     </div>
                     <div class="route-meta" style="border-top: 1px solid #eee; padding-top: 8px; margin-top: 4px;">
@@ -1412,21 +1427,21 @@
             const { polylineLayer, markers, name, origin, destination } = route;
 
             // Tooltip for polyline (route name)
-            polylineLayer.bindTooltip(name, {
+            polylineLayer.bindTooltip(escapeHtml(name), {
                 sticky: true,
                 className: 'route-tooltip'
             });
 
             // Tooltip for start marker (origin)
             if (markers[0]) {
-                markers[0].bindTooltip(`Start: ${origin}`, {
+                markers[0].bindTooltip(`Start: ${escapeHtml(origin)}`, {
                     className: 'route-tooltip'
                 });
             }
 
             // Tooltip for end marker (destination)
             if (markers[1]) {
-                markers[1].bindTooltip(`End: ${destination}`, {
+                markers[1].bindTooltip(`End: ${escapeHtml(destination)}`, {
                     className: 'route-tooltip'
                 });
             }
@@ -1473,7 +1488,16 @@
             return div.innerHTML;
         }
 
+        const VALID_COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;
+        const DEFAULT_ROUTE_COLORS = ['#4285F4', '#EA4335', '#34A853', '#FBBC05', '#9C27B0', '#00BCD4', '#FF9800', '#795548'];
+        function sanitizeColor(color, fallbackIndex) {
+            if (typeof color === 'string' && VALID_COLOR_RE.test(color)) return color;
+            return DEFAULT_ROUTE_COLORS[fallbackIndex % DEFAULT_ROUTE_COLORS.length];
+        }
+
         function restoreRoute(data) {
+            if (!Number.isFinite(data.id)) data.id = Date.now();
+            data.color = sanitizeColor(data.color, routes.length);
             const polylineLayer = L.polyline(data.coordinates, {
                 color: data.color,
                 weight: 4,
@@ -1498,13 +1522,14 @@
 
         // ============ Custom Markers ============
         function createMarkerIcon(type, color, number = null) {
+            const safeColor = VALID_COLOR_RE.test(color) ? color : '#4285F4';
             let html = '';
             if (type === 'start') {
-                html = `<div class="marker-icon" style="background: ${color}"><span>A</span></div>`;
+                html = `<div class="marker-icon" style="background: ${safeColor}"><span>A</span></div>`;
             } else if (type === 'end') {
-                html = `<div class="marker-icon" style="background: ${color}"><span>B</span></div>`;
+                html = `<div class="marker-icon" style="background: ${safeColor}"><span>B</span></div>`;
             } else if (type === 'waypoint') {
-                html = `<div class="marker-number" style="background: ${color}">${number}</div>`;
+                html = `<div class="marker-number" style="background: ${safeColor}">${number}</div>`;
             }
 
             return L.divIcon({
@@ -1662,7 +1687,7 @@
 
         // ============ API Key Modal ============
         function getApiKey() {
-            return localStorage.getItem('route2gpx_apiKey') || '';
+            try { return localStorage.getItem('route2gpx_apiKey') || ''; } catch { return ''; }
         }
 
         function updateApiKeyStatus() {
@@ -2082,19 +2107,14 @@
         }
 
         function formatDuration(durationStr) {
-            const seconds = parseInt(durationStr.replace('s', ''));
+            const seconds = parseInt(durationStr?.replace('s', ''), 10);
+            if (!Number.isFinite(seconds)) return '—';
             const hours = Math.floor(seconds / 3600);
             const minutes = Math.floor((seconds % 3600) / 60);
             if (hours > 0) {
                 return `${hours}h ${minutes}m`;
             }
             return `${minutes}m`;
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
         }
 
         function escapeXml(text) {
@@ -2138,7 +2158,7 @@
                         <div>
                             <div class="route-item-title">${escapeHtml(route.name)}</div>
                             <div class="route-item-meta">
-                                ${getModeEmoji(route.travelMode)} ${route.travelMode.toLowerCase()} • 
+                                ${getModeEmoji(route.travelMode)} ${escapeHtml(route.travelMode.toLowerCase())} • 
                                 ${formatDistance(route.distance)} • ${formatDuration(route.duration)}
                                 ${route.stops.length > 0 ? ` • ${route.stops.length} stop(s)` : ''}
                             </div>
@@ -2255,13 +2275,18 @@
             const coords = route.coordinates;
 
             // Calculate bounds
-            const lats = coords.map(c => c[0]);
-            const lngs = coords.map(c => c[1]);
+            let minlat = Infinity, maxlat = -Infinity, minlon = Infinity, maxlon = -Infinity;
+            for (const [lat, lng] of coords) {
+                if (lat < minlat) minlat = lat;
+                if (lat > maxlat) maxlat = lat;
+                if (lng < minlon) minlon = lng;
+                if (lng > maxlon) maxlon = lng;
+            }
             const bounds = {
-                minlat: Math.min(...lats).toFixed(6),
-                maxlat: Math.max(...lats).toFixed(6),
-                minlon: Math.min(...lngs).toFixed(6),
-                maxlon: Math.max(...lngs).toFixed(6)
+                minlat: minlat.toFixed(6),
+                maxlat: maxlat.toFixed(6),
+                minlon: minlon.toFixed(6),
+                maxlon: maxlon.toFixed(6)
             };
 
             const lines = [
@@ -2296,11 +2321,14 @@
             // Add track
             lines.push('  <trk>');
             lines.push(`    <name>${escapeXml(route.name)}</name>`);
-            lines.push(`    <type>${route.travelMode}</type>`);
+            lines.push(`    <type>${escapeXml(route.travelMode)}</type>`);
             lines.push('    <trkseg>');
 
+            const durationSeconds = parseInt(route.duration?.replace('s', ''), 10) || coords.length * 60;
+            const intervalMs = (durationSeconds * 1000) / Math.max(coords.length - 1, 1);
+
             coords.forEach(([lat, lng], idx) => {
-                const time = new Date(now.getTime() + idx * 60000).toISOString();
+                const time = new Date(now.getTime() + idx * intervalMs).toISOString();
                 lines.push(`      <trkpt lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}">`);
                 lines.push('        <ele>0</ele>');
                 lines.push(`        <time>${time}</time>`);
