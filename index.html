@@ -1,9 +1,24 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Route to GPX</title>
+    <title>Route to GPX — Convert Routes to GPX Files</title>
+    <meta name="description"
+        content="Convert driving, cycling, and walking routes to GPX files for GPS devices. Privacy-first — runs entirely in your browser.">
+    <meta property="og:title" content="Route to GPX">
+    <meta property="og:description"
+        content="Convert driving, cycling, and walking routes to GPX files for GPS devices. Privacy-first — runs entirely in your browser.">
+    <meta property="og:url" content="https://route2gpx.rsmb.tv">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Route to GPX">
+    <meta name="twitter:description"
+        content="Convert routes to GPX files for GPS devices. Runs entirely in your browser.">
+    <link rel="canonical" href="https://route2gpx.rsmb.tv">
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         * {
@@ -65,7 +80,9 @@
             color: #aaa;
         }
 
-        input, select, button {
+        input,
+        select,
+        button {
             padding: 10px 12px;
             border: 1px solid #333;
             border-radius: 6px;
@@ -74,7 +91,9 @@
             color: #eee;
         }
 
-        input:focus, select:focus, button:focus {
+        input:focus,
+        select:focus,
+        button:focus {
             outline: 3px solid #00d4ff;
             outline-offset: 2px;
         }
@@ -295,7 +314,7 @@
             background: #16213e;
             color: #eee;
             border: 2px solid #333;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
         }
 
         .map-controls button:hover {
@@ -333,8 +352,15 @@
         }
 
         @keyframes pulse-warning {
-            0%, 100% { box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
-            50% { box-shadow: 0 2px 12px rgba(233, 69, 96, 0.5); }
+
+            0%,
+            100% {
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+            }
+
+            50% {
+                box-shadow: 0 2px 12px rgba(233, 69, 96, 0.5);
+            }
         }
 
         .map-mode-indicator {
@@ -354,8 +380,15 @@
         }
 
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.7;
+            }
         }
 
         /* Route Popup Styles */
@@ -464,7 +497,7 @@
             width: 36px;
             height: 32px;
             border-radius: 6px;
-            border: 2px solid rgba(255,255,255,0.3);
+            border: 2px solid rgba(255, 255, 255, 0.3);
             cursor: pointer;
             transition: transform 0.1s, border-color 0.1s;
             padding: 0;
@@ -472,7 +505,7 @@
         }
 
         .color-swatch:hover {
-            border-color: rgba(255,255,255,0.6);
+            border-color: rgba(255, 255, 255, 0.6);
             transform: scale(1.05);
         }
 
@@ -487,7 +520,7 @@
             padding: 8px;
             display: none;
             z-index: 1000;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         }
 
         .color-dropdown.visible {
@@ -589,7 +622,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4);
         }
 
         .marker-icon span {
@@ -613,7 +646,7 @@
             font-weight: 700;
             color: white;
             border: 2px solid white;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
         }
 
         /* Route hover highlight */
@@ -630,7 +663,7 @@
             font-size: 0.85rem;
             padding: 6px 10px;
             border-radius: 4px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
         }
 
         .route-tooltip::before {
@@ -650,7 +683,9 @@
         }
 
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            to {
+                transform: rotate(360deg);
+            }
         }
 
         /* Keyboard shortcuts hint */
@@ -726,7 +761,7 @@
             line-height: 1.4;
             width: 220px;
             text-align: left;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
             border: 1px solid #333;
             z-index: 1000;
             transition: opacity 0.2s, visibility 0.2s;
@@ -950,48 +985,50 @@
             body {
                 flex-direction: column;
             }
+
             .sidebar {
                 width: 100%;
                 max-height: 50vh;
                 order: 2;
                 padding: 16px;
             }
+
             .map-container {
                 order: 1;
                 min-height: 50vh;
             }
-            
+
             /* Larger touch targets on mobile */
             .btn-icon {
                 min-width: 48px;
                 min-height: 48px;
             }
-            
+
             .map-controls {
                 gap: 10px;
             }
-            
+
             .inline-group {
                 flex-direction: column;
                 gap: 8px;
             }
-            
+
             .inline-group .form-group {
                 flex: none;
             }
-            
+
             /* Improve color picker for touch */
             .color-dropdown-grid {
                 grid-template-columns: repeat(5, 1fr);
                 gap: 10px;
                 padding: 4px;
             }
-            
+
             .color-option {
                 width: 40px;
                 height: 40px;
             }
-            
+
             /* Stack waypoint buttons on small screens */
             .waypoint-buttons {
                 flex-direction: column;
@@ -1000,7 +1037,10 @@
 
         /* Reduce motion for users who prefer it */
         @media (prefers-reduced-motion: reduce) {
-            *, *::before, *::after {
+
+            *,
+            *::before,
+            *::after {
                 animation-duration: 0.01ms !important;
                 animation-iteration-count: 1 !important;
                 transition-duration: 0.01ms !important;
@@ -1012,30 +1052,34 @@
             .route-item {
                 border: 2px solid currentColor;
             }
-            
+
             button {
                 border: 2px solid currentColor;
             }
         }
     </style>
 </head>
+
 <body>
     <a href="#main-form" class="skip-link">Skip to main content</a>
-    
+
     <nav class="sidebar" role="navigation" aria-label="Route controls">
         <header>
             <h1>🗺️ Route to GPX</h1>
             <p style="font-size: 0.75rem; color: #888; margin-top: 4px;">Convert routes to GPX files for GPS devices</p>
         </header>
 
-        <button type="button" class="help-toggle" onclick="toggleHelp()" aria-expanded="false" aria-controls="helpContent">
+        <button type="button" class="help-toggle" onclick="toggleHelp()" aria-expanded="false"
+            aria-controls="helpContent">
             <span>ℹ️</span> How it works & keyboard shortcuts
         </button>
-        
+
         <div id="helpContent" class="help-content" role="region" aria-labelledby="help-heading">
             <h3 id="help-heading">🔒 Privacy First</h3>
-            <p>This app runs <strong>entirely in your browser</strong>. There is no server — your API key and routes are stored only in your browser's localStorage and are never transmitted anywhere except directly to Google's API.</p>
-            
+            <p>This app runs <strong>entirely in your browser</strong>. There is no server — your API key and routes are
+                stored only in your browser's localStorage and are never transmitted anywhere except directly to
+                Google's API.</p>
+
             <h3>⌨️ Keyboard Shortcuts</h3>
             <ul>
                 <li><kbd>Enter</kbd> in any field — Get route</li>
@@ -1044,7 +1088,7 @@
                 <li>Arrow keys — Pan map when focused</li>
                 <li><kbd>+</kbd> / <kbd>-</kbd> — Zoom map</li>
             </ul>
-            
+
             <h3>💡 Tips</h3>
             <ul>
                 <li>Click the <strong>✚</strong> button on the map to add points by clicking</li>
@@ -1071,11 +1115,9 @@
                     </span>
                 </label>
                 <div class="input-with-btn">
-                    <input type="text" id="origin" placeholder="Address, place, or lat,lng" 
-                           title="Starting point" />
-                    <button type="button" class="btn-icon btn-outline" onclick="useMyLocation('origin')" 
-                            aria-label="Use my current location as origin" 
-                            title="Use GPS location">
+                    <input type="text" id="origin" placeholder="Address, place, or lat,lng" title="Starting point" />
+                    <button type="button" class="btn-icon btn-outline" onclick="useMyLocation('origin')"
+                        aria-label="Use my current location as origin" title="Use GPS location">
                         📍
                     </button>
                 </div>
@@ -1084,7 +1126,8 @@
             <div class="form-group">
                 <label for="destination">
                     Destination
-                    <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about destination">
+                    <span class="info-tooltip" tabindex="0" role="button"
+                        aria-label="More information about destination">
                         ?
                         <span class="tooltip-text">
                             Same formats as origin — address, place name, or coordinates.
@@ -1092,11 +1135,9 @@
                     </span>
                 </label>
                 <div class="input-with-btn">
-                    <input type="text" id="destination" placeholder="Address, place, or lat,lng" 
-                           title="End point" />
-                    <button type="button" class="btn-icon btn-outline" onclick="useMyLocation('destination')" 
-                            aria-label="Use my current location as destination" 
-                            title="Use GPS location">
+                    <input type="text" id="destination" placeholder="Address, place, or lat,lng" title="End point" />
+                    <button type="button" class="btn-icon btn-outline" onclick="useMyLocation('destination')"
+                        aria-label="Use my current location as destination" title="Use GPS location">
                         📍
                     </button>
                 </div>
@@ -1108,21 +1149,19 @@
                     <span class="info-tooltip" tabindex="0" role="button" aria-label="More information about waypoints">
                         ?
                         <span class="tooltip-text">
-                            Add intermediate stops — the route will pass through each in order. Great for scenic routes or multi-stop trips.
+                            Add intermediate stops — the route will pass through each in order. Great for scenic routes
+                            or multi-stop trips.
                         </span>
                     </span>
                 </label>
-                <div class="stops-container" id="stopsContainer" role="list" 
-                     aria-labelledby="waypoints-label"></div>
+                <div class="stops-container" id="stopsContainer" role="list" aria-labelledby="waypoints-label"></div>
                 <div class="waypoint-buttons">
-                    <button type="button" class="btn-outline btn-small" onclick="addStop()" 
-                            aria-label="Add a waypoint"
-                            title="Add a stop along your route">
+                    <button type="button" class="btn-outline btn-small" onclick="addStop()" aria-label="Add a waypoint"
+                        title="Add a stop along your route">
                         + Add
                     </button>
-                    <button type="button" class="btn-outline btn-small" onclick="reverseRoute()" 
-                            aria-label="Reverse the route direction"
-                            title="Swap origin ↔ destination">
+                    <button type="button" class="btn-outline btn-small" onclick="reverseRoute()"
+                        aria-label="Reverse the route direction" title="Swap origin ↔ destination">
                         🔄 Reverse
                     </button>
                 </div>
@@ -1149,12 +1188,9 @@
                         </span>
                     </label>
                     <div class="color-picker-wrapper">
-                        <button type="button" id="colorSwatch" class="color-swatch" 
-                                onclick="toggleColorDropdown()" 
-                                aria-label="Select route color" 
-                                aria-haspopup="true"
-                                aria-expanded="false"
-                                title="Click to choose color"></button>
+                        <button type="button" id="colorSwatch" class="color-swatch" onclick="toggleColorDropdown()"
+                            aria-label="Select route color" aria-haspopup="true" aria-expanded="false"
+                            title="Click to choose color"></button>
                         <input type="hidden" id="routeColor" value="#ff4757" />
                         <div class="color-dropdown" id="colorDropdown" role="listbox" aria-label="Color options">
                             <div class="color-dropdown-grid" id="colorOptions"></div>
@@ -1166,15 +1202,14 @@
             <div class="settings-row">
                 <span>Distance:</span>
                 <div class="unit-toggle" role="radiogroup" aria-label="Distance unit">
-                    <button type="button" id="unitKm" class="active" onclick="setUnit('km')" 
-                            role="radio" aria-checked="true" title="Show distances in kilometers">km</button>
-                    <button type="button" id="unitMi" onclick="setUnit('mi')" 
-                            role="radio" aria-checked="false" title="Show distances in miles">mi</button>
+                    <button type="button" id="unitKm" class="active" onclick="setUnit('km')" role="radio"
+                        aria-checked="true" title="Show distances in kilometers">km</button>
+                    <button type="button" id="unitMi" onclick="setUnit('mi')" role="radio" aria-checked="false"
+                        title="Show distances in miles">mi</button>
                 </div>
             </div>
 
-            <button id="getRouteBtn" onclick="getRoute()"
-                    title="Calculate route (Enter or ⌘/Ctrl+Enter)">
+            <button id="getRouteBtn" onclick="getRoute()" title="Calculate route (Enter or ⌘/Ctrl+Enter)">
                 Get Route
             </button>
 
@@ -1186,13 +1221,11 @@
         <section aria-labelledby="routes-heading">
             <div class="bulk-actions">
                 <button class="btn-outline" onclick="downloadAllRoutes()" id="downloadAllBtn" disabled
-                        aria-label="Download all routes as GPX files"
-                        title="Download every route as a separate GPX file">
+                    aria-label="Download all routes as GPX files" title="Download every route as a separate GPX file">
                     📥 Download All
                 </button>
                 <button class="btn-secondary" onclick="clearAllRoutes()" id="clearAllBtn" disabled
-                        aria-label="Remove all routes from the map"
-                        title="Remove all routes from the map and storage">
+                    aria-label="Remove all routes from the map" title="Remove all routes from the map and storage">
                     🗑️ Clear All
                 </button>
             </div>
@@ -1204,22 +1237,20 @@
 
     <div class="map-container">
         <div id="map" role="application" aria-label="Route map. Click to add waypoints when in click mode."
-             tabindex="0"></div>
-        
+            tabindex="0"></div>
+
         <div class="map-controls">
             <button type="button" id="apiKeyMapBtn" class="btn-icon api-key-btn" onclick="openApiKeyModal()"
-                    aria-label="API Key settings" 
-                    title="Google Routes API Key - Click to configure">
+                aria-label="API Key settings" title="Google Routes API Key - Click to configure">
                 🔑
             </button>
             <button type="button" id="clickModeBtn" class="btn-icon" onclick="toggleClickMode()"
-                    aria-label="Toggle click-to-add mode" aria-pressed="false" 
-                    title="Click-to-add mode: Click the map to set origin, destination, and waypoints">
+                aria-label="Toggle click-to-add mode" aria-pressed="false"
+                title="Click-to-add mode: Click the map to set origin, destination, and waypoints">
                 ✚
             </button>
-            <button type="button" class="btn-icon" onclick="locateMe()"
-                    aria-label="Center map on my location" 
-                    title="Center the map on your current GPS location">
+            <button type="button" class="btn-icon" onclick="locateMe()" aria-label="Center map on my location"
+                title="Center the map on your current GPS location">
                 🎯
             </button>
         </div>
@@ -1329,7 +1360,7 @@
             const gpxContent = generateGPX(route);
             const fileSize = formatFileSize(new Blob([gpxContent]).size);
             const stopCount = route.stops ? route.stops.length : 0;
-            
+
             return `
                 <div class="route-popup">
                     <h4>${escapeHtml(route.name)}</h4>
@@ -1370,7 +1401,7 @@
             polylineLayer.bindPopup(popup);
 
             // Right-click also opens the popup
-            polylineLayer.on('contextmenu', function(e) {
+            polylineLayer.on('contextmenu', function (e) {
                 L.DomEvent.stopPropagation(e);
                 L.DomEvent.preventDefault(e);
                 this.openPopup(e.latlng);
@@ -1379,27 +1410,27 @@
 
         function bindRouteHoverEffects(route) {
             const { polylineLayer, markers, name, origin, destination } = route;
-            
+
             // Tooltip for polyline (route name)
             polylineLayer.bindTooltip(name, {
                 sticky: true,
                 className: 'route-tooltip'
             });
-            
+
             // Tooltip for start marker (origin)
             if (markers[0]) {
                 markers[0].bindTooltip(`Start: ${origin}`, {
                     className: 'route-tooltip'
                 });
             }
-            
+
             // Tooltip for end marker (destination)
             if (markers[1]) {
                 markers[1].bindTooltip(`End: ${destination}`, {
                     className: 'route-tooltip'
                 });
             }
-            
+
             // Hover highlight function
             const highlightRoute = () => {
                 polylineLayer.setStyle({ weight: 7, opacity: 1 });
@@ -1410,7 +1441,7 @@
                 const sidebarItem = document.querySelector(`[data-route-id="${route.id}"]`);
                 if (sidebarItem) sidebarItem.classList.add('highlighted');
             };
-            
+
             const unhighlightRoute = () => {
                 polylineLayer.setStyle({ weight: 4, opacity: 0.8 });
                 markers.forEach(m => {
@@ -1420,15 +1451,15 @@
                 const sidebarItem = document.querySelector(`[data-route-id="${route.id}"]`);
                 if (sidebarItem) sidebarItem.classList.remove('highlighted');
             };
-            
+
             // Store highlight functions on route for sidebar to use
             route.highlight = highlightRoute;
             route.unhighlight = unhighlightRoute;
-            
+
             // Bind hover events to polyline
             polylineLayer.on('mouseover', highlightRoute);
             polylineLayer.on('mouseout', unhighlightRoute);
-            
+
             // Bind hover events to markers
             markers.forEach(marker => {
                 marker.on('mouseover', highlightRoute);
@@ -1486,7 +1517,7 @@
 
         function createRouteMarkers(coordinates, color) {
             const markers = [];
-            
+
             // Start marker
             const startMarker = L.marker(coordinates[0], {
                 icon: createMarkerIcon('start', color)
@@ -1602,7 +1633,7 @@
             }
         }
 
-        map.on('click', function(e) {
+        map.on('click', function (e) {
             if (!clickMode) return;
 
             const latLng = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
@@ -1673,7 +1704,7 @@
         function saveApiKey() {
             const input = document.getElementById('apiKeyInput');
             const key = input.value.trim();
-            
+
             if (key) {
                 localStorage.setItem('route2gpx_apiKey', key);
                 showStatus('API key saved');
@@ -1692,13 +1723,13 @@
         }
 
         // Close modal on Escape or click outside
-        document.getElementById('apiKeyModal').addEventListener('click', function(e) {
+        document.getElementById('apiKeyModal').addEventListener('click', function (e) {
             if (e.target === this) {
                 closeApiKeyModal();
             }
         });
 
-        document.getElementById('apiKeyInput').addEventListener('keydown', function(e) {
+        document.getElementById('apiKeyInput').addEventListener('keydown', function (e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 saveApiKey();
@@ -1782,7 +1813,7 @@
         function addStop(value = '') {
             const container = document.getElementById('stopsContainer');
             const stopNumber = container.children.length + 1;
-            
+
             const row = document.createElement('div');
             row.className = 'stop-row';
             row.setAttribute('role', 'listitem');
@@ -1793,11 +1824,11 @@
                 <button type="button" onclick="removeStop(this)" aria-label="Remove waypoint ${stopNumber}">✕</button>
             `;
             container.appendChild(row);
-            
+
             if (!value) {
                 row.querySelector('input').focus();
             }
-            
+
             updatePreviewMarkers();
             renumberStops();
         }
@@ -1828,7 +1859,7 @@
         function reverseRoute() {
             const originInput = document.getElementById('origin');
             const destInput = document.getElementById('destination');
-            
+
             // Swap origin and destination
             const temp = originInput.value;
             originInput.value = destInput.value;
@@ -1837,7 +1868,7 @@
             // Reverse waypoints
             const stops = getStops();
             stops.reverse();
-            
+
             const container = document.getElementById('stopsContainer');
             container.innerHTML = '';
             stops.forEach(stop => addStop(stop));
@@ -1853,7 +1884,7 @@
             document.getElementById('unitMi').classList.toggle('active', unit === 'mi');
             document.getElementById('unitKm').setAttribute('aria-checked', unit === 'km');
             document.getElementById('unitMi').setAttribute('aria-checked', unit === 'mi');
-            
+
             renderRoutesList();
             if (save) saveToStorage();
         }
@@ -1864,7 +1895,7 @@
             status.textContent = message;
             status.className = 'status ' + (isError ? 'error' : 'success');
             status.style.display = 'block';
-            
+
             if (!isError) {
                 setTimeout(() => { status.style.display = 'none'; }, 3000);
             }
@@ -1893,7 +1924,7 @@
             const destination = document.getElementById('destination').value.trim();
             const travelMode = document.getElementById('travelMode').value;
             let color = document.getElementById('routeColor').value;
-            
+
             // Ensure we have a valid color
             if (!color || color === '') {
                 color = COLOR_PALETTE[selectedColorIndex] || COLOR_PALETTE[0];
@@ -2020,10 +2051,10 @@
                 document.getElementById('origin').value = '';
                 document.getElementById('destination').value = '';
                 exitClickMode();
-                
+
                 // Pick a random color for the next route
                 selectRandomColor();
-                
+
                 // Return focus to origin for next route
                 document.getElementById('origin').focus();
 
@@ -2082,7 +2113,7 @@
         // ============ Route List Rendering ============
         function renderRoutesList() {
             const list = document.getElementById('routesList');
-            
+
             if (routes.length === 0) {
                 list.innerHTML = `
                     <div style="color: #888; text-align: center; padding: 24px;">
@@ -2156,9 +2187,9 @@
                     route.markers.forEach(m => m.addTo(map));
                     renderRoutesList();
                 }
-                
+
                 map.fitBounds(route.polylineLayer.getBounds(), { padding: [50, 50] });
-                
+
                 // Open popup at the center of the route
                 const center = route.polylineLayer.getCenter();
                 route.polylineLayer.openPopup(center);
@@ -2222,7 +2253,7 @@
         function generateGPX(route) {
             const now = new Date();
             const coords = route.coordinates;
-            
+
             // Calculate bounds
             const lats = coords.map(c => c[0]);
             const lngs = coords.map(c => c[1]);
@@ -2319,7 +2350,7 @@
         }
 
         // ============ Keyboard Navigation ============
-        document.addEventListener('keydown', function(e) {
+        document.addEventListener('keydown', function (e) {
             // Escape to exit click mode
             if (e.key === 'Escape' && clickMode) {
                 exitClickMode();
@@ -2344,7 +2375,7 @@
         // Debounce function for performance
         function debounce(fn, delay) {
             let timeoutId;
-            return function(...args) {
+            return function (...args) {
                 clearTimeout(timeoutId);
                 timeoutId = setTimeout(() => fn.apply(this, args), delay);
             };
@@ -2354,9 +2385,9 @@
         function updateInputValidation(input) {
             const value = input.value.trim();
             const latLngRegex = /^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/;
-            
+
             input.classList.remove('valid-coords', 'has-text');
-            
+
             if (latLngRegex.test(value)) {
                 input.classList.add('valid-coords');
             } else if (value.length > 0) {
@@ -2366,23 +2397,23 @@
 
         // Update preview markers on input change (debounced for performance)
         const debouncedPreviewUpdate = debounce(updatePreviewMarkers, 150);
-        document.getElementById('origin').addEventListener('input', function() {
+        document.getElementById('origin').addEventListener('input', function () {
             debouncedPreviewUpdate();
             updateInputValidation(this);
         });
-        document.getElementById('destination').addEventListener('input', function() {
+        document.getElementById('destination').addEventListener('input', function () {
             debouncedPreviewUpdate();
             updateInputValidation(this);
         });
 
         // Enter key in origin/destination triggers route
-        document.getElementById('origin').addEventListener('keydown', function(e) {
+        document.getElementById('origin').addEventListener('keydown', function (e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 getRoute();
             }
         });
-        document.getElementById('destination').addEventListener('keydown', function(e) {
+        document.getElementById('destination').addEventListener('keydown', function (e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 getRoute();
@@ -2401,7 +2432,7 @@
                         aria-label="Color ${idx + 1}: ${color}"
                         title="${color}"></button>
             `).join('');
-            
+
             updateColorSwatch();
         }
 
@@ -2431,21 +2462,21 @@
 
         function selectColor(idx) {
             selectedColorIndex = idx;
-            
+
             // Remove this color from the available pool if present
             const poolIdx = availableColorIndices.indexOf(idx);
             if (poolIdx > -1) {
                 availableColorIndices.splice(poolIdx, 1);
             }
-            
+
             updateColorSwatch();
-            
+
             // Update selected state
             document.querySelectorAll('.color-option').forEach((btn, i) => {
                 btn.classList.toggle('selected', i === idx);
                 btn.setAttribute('aria-selected', i === idx);
             });
-            
+
             closeColorDropdown();
         }
 
@@ -2461,21 +2492,21 @@
             if (availableColorIndices.length === 0) {
                 resetColorPool();
             }
-            
+
             // Safety check - if pool is still empty, fill with all indices
             if (availableColorIndices.length === 0) {
                 availableColorIndices = COLOR_PALETTE.map((_, i) => i);
             }
-            
+
             // Pick a random index from the available pool and remove it
             const poolIdx = Math.floor(Math.random() * availableColorIndices.length);
             selectedColorIndex = availableColorIndices.splice(poolIdx, 1)[0];
-            
+
             initColorPresets();
         }
 
         // Close dropdown when clicking outside
-        document.addEventListener('click', function(e) {
+        document.addEventListener('click', function (e) {
             const wrapper = document.querySelector('.color-picker-wrapper');
             if (wrapper && !wrapper.contains(e.target)) {
                 closeColorDropdown();
@@ -2494,33 +2525,34 @@
     <div class="modal-overlay" id="apiKeyModal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div class="modal">
             <h2 id="modal-title">🔑 API Key Required</h2>
-            
+
             <p>
-                To calculate routes, you need a <strong>Google Routes API key</strong>. 
+                To calculate routes, you need a <strong>Google Routes API key</strong>.
                 Don't worry — it only takes a few minutes to set up, and Google offers generous free usage.
             </p>
-            
+
             <div class="privacy-note">
                 <strong>🔒 100% Private & Secure</strong><br>
-                This app runs entirely in your browser — there is no server. Your API key is stored only in your browser's localStorage and sent directly to Google. We never see or have access to your key.
+                This app runs entirely in your browser — there is no server. Your API key is stored only in your
+                browser's localStorage and sent directly to Google. We never see or have access to your key.
             </div>
-            
+
             <div class="form-group">
                 <label for="apiKeyInput">Paste your API Key</label>
-                <input type="password" id="apiKeyInput" placeholder="AIza..." 
-                       autocomplete="off" style="width: 100%;" />
+                <input type="password" id="apiKeyInput" placeholder="AIza..." autocomplete="off" style="width: 100%;" />
             </div>
-            
+
             <div class="btn-row">
                 <button type="button" class="btn-outline" onclick="closeApiKeyModal()">Later</button>
                 <button type="button" onclick="saveApiKey()">Save Key</button>
             </div>
-            
-            <a href="https://developers.google.com/maps/documentation/routes/get-api-key" 
-               target="_blank" rel="noopener noreferrer" class="help-link">
-               📖 Step-by-step guide: Get a Google Routes API key →
+
+            <a href="https://developers.google.com/maps/documentation/routes/get-api-key" target="_blank"
+                rel="noopener noreferrer" class="help-link">
+                📖 Step-by-step guide: Get a Google Routes API key →
             </a>
         </div>
     </div>
 </body>
+
 </html>

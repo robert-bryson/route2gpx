@@ -1,3 +1,11 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+terraform.tfvars.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
