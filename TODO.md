@@ -1,0 +1,2 @@
+- [ ] Be able to load Fog of World data onto map
+  - [ ] be able to manipulate the FoW data? directly bake new GPS data into it?

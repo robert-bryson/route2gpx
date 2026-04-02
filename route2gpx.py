@@ -3,6 +3,7 @@
 Google Routes API to GPX Converter
 This script retrieves a route using the Google Routes API and exports it as a GPX file.
 """
+
 import argparse
 import os
 import re

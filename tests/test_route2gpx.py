@@ -37,6 +37,7 @@ def r2g():
 
 # ============ sanitize_filename tests ============
 
+
 class TestSanitizeFilename:
     def test_basic(self, r2g):
         assert r2g.sanitize_filename("hello world") == "hello world"
@@ -67,6 +68,7 @@ class TestSanitizeFilename:
 
 # ============ escape_xml tests ============
 
+
 class TestEscapeXml:
     def test_ampersand(self, r2g):
         assert r2g.escape_xml("a & b") == "a &amp; b"
@@ -94,6 +96,7 @@ class TestEscapeXml:
 
 
 # ============ GPX output structure test ============
+
 
 class TestGPXOutput:
     def test_gpx_contains_required_elements(self, r2g):

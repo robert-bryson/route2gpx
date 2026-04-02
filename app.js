@@ -7,7 +7,7 @@ let previewMarkers = [];
 // Vibrant colors that pop on grayscale basemap
 const COLOR_PALETTE = [
     '#ff4757', // Red
-    '#2ed573', // Green  
+    '#2ed573', // Green
     '#1e90ff', // Dodger Blue
     '#ffa502', // Orange
     '#a55eea', // Purple
@@ -569,7 +569,7 @@ function addStop(value = '') {
     row.setAttribute('role', 'listitem');
     row.innerHTML = `
         <span class="stop-number" aria-hidden="true">${stopNumber}</span>
-        <input type="text" class="stop-input" placeholder="Waypoint ${stopNumber}" 
+        <input type="text" class="stop-input" placeholder="Waypoint ${stopNumber}"
                value="${escapeHtml(value)}" aria-label="Waypoint ${stopNumber}" />
         <button type="button" data-action="remove-stop" aria-label="Remove waypoint ${stopNumber}">✕</button>
     `;
@@ -879,7 +879,7 @@ function renderRoutesList() {
                 <div>
                     <div class="route-item-title">${escapeHtml(route.name)}</div>
                     <div class="route-item-meta">
-                        ${getModeEmoji(route.travelMode)} ${escapeHtml(route.travelMode.toLowerCase())} • 
+                        ${getModeEmoji(route.travelMode)} ${escapeHtml(route.travelMode.toLowerCase())} •
                         ${formatDistance(route.distance)} • ${formatDuration(route.duration)}
                         ${route.stops.length > 0 ? ` • ${route.stops.length} stop(s)` : ''}
                     </div>
@@ -1173,10 +1173,10 @@ document.getElementById('destination').addEventListener('keydown', function (e) 
 function initColorPresets() {
     const container = document.getElementById('colorOptions');
     container.innerHTML = COLOR_PALETTE.map((color, idx) => `
-        <button type="button" class="color-option ${idx === selectedColorIndex ? 'selected' : ''}" 
-                style="background: ${color}" 
+        <button type="button" class="color-option ${idx === selectedColorIndex ? 'selected' : ''}"
+                style="background: ${color}"
                 data-action="select-color" data-color-index="${idx}"
-                role="option" 
+                role="option"
                 aria-selected="${idx === selectedColorIndex}"
                 aria-label="Color ${idx + 1}: ${color}"
                 title="${color}"></button>
