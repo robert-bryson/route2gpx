@@ -26,6 +26,17 @@ def sanitize_filename(s):
     return re.sub(r"[^a-zA-Z0-9_\-\s]", "_", s)
 
 
+def escape_xml(text):
+    """Escape special characters for XML output."""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
+
+
 # Command-line arguments
 parser = argparse.ArgumentParser(description="Compute route and export as GPX.")
 parser.add_argument("origin", help="Start location (address or lat,lng).")
@@ -74,13 +85,18 @@ except (KeyError, IndexError):
 # Decode polyline into coordinates (lat, lng)
 coordinates = polyline.decode(encoded_polyline)
 
+# Sanitize input args for filename
+safe_origin = sanitize_filename(args.origin)
+safe_destination = sanitize_filename(args.destination)
+safe_mode = sanitize_filename(args.mode.lower())
+
 # Generate GPX content
 start_time = datetime.now(UTC)
 
 gpx_lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<gpx version="1.1" creator="route2gpx">',
-    f"  <trk><name>Route: {args.origin} to {args.destination}</name>",
+    f"  <trk><name>Route: {escape_xml(args.origin)} to {escape_xml(args.destination)}</name>",
     "    <trkseg>",
 ]
 
@@ -103,16 +119,10 @@ gpx_lines.extend(["    </trkseg>", "  </trk>", "</gpx>"])
 
 gpx_content = "\n".join(gpx_lines)
 
-
-# Sanitize input args for filename
-safe_origin = sanitize_filename(args.origin)
-safe_destination = sanitize_filename(args.destination)
-safe_mode = sanitize_filename(args.mode.lower())
+# Use sanitized filename
 output_file = f"{safe_mode}-route_{safe_origin}-{safe_destination}.gpx"
 
-
 # Write GPX to file
-output_file = f"{args.mode}-route_{args.origin}-{args.destination}.gpx"
 with open(output_file, "w") as file:
     file.write(gpx_content)
 

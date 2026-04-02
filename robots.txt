@@ -1,4 +1,2 @@
 User-agent: *
 Allow: /
-
-Sitemap: https://route2gpx.rsmb.tv/sitemap.xml
