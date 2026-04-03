@@ -60,25 +60,36 @@
         }
 
         .sidebar {
-            width: 400px;
-            padding: 20px;
+            width: 380px;
+            padding: 16px;
             background: #16213e;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 14px;
+            gap: 12px;
         }
 
         h1 {
-            font-size: 1.4rem;
+            font-size: 1.3rem;
             color: #00d4ff;
-            margin-bottom: 4px;
+            margin-bottom: 2px;
+        }
+
+        .sidebar>header {
+            padding-bottom: 12px;
+            border-bottom: 1px solid #1e2d50;
+        }
+
+        .subtitle {
+            font-size: 0.75rem;
+            color: #667;
+            margin-top: 4px;
         }
 
         .form-group {
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 4px;
         }
 
         label {
@@ -89,10 +100,10 @@
         input,
         select,
         button {
-            padding: 10px 12px;
-            border: 1px solid #333;
+            padding: 8px 10px;
+            border: 1px solid #2a3a5c;
             border-radius: 6px;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             background: #0f3460;
             color: #eee;
         }
@@ -155,9 +166,9 @@
         }
 
         .btn-small {
-            padding: 6px 10px;
-            font-size: 0.8rem;
-            min-height: 36px;
+            padding: 5px 10px;
+            font-size: 0.78rem;
+            min-height: 32px;
         }
 
         .btn-icon {
@@ -180,8 +191,8 @@
         .stops-container {
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            max-height: 150px;
+            gap: 6px;
+            max-height: 140px;
             overflow-y: auto;
         }
 
@@ -233,8 +244,8 @@
         .route-item {
             background: #0f3460;
             border-radius: 8px;
-            padding: 12px;
-            border-left: 4px solid;
+            padding: 10px 12px;
+            border-left: 3px solid;
             transition: transform 0.2s, background 0.2s, box-shadow 0.2s;
             cursor: pointer;
         }
@@ -263,36 +274,38 @@
 
         .route-item-title {
             font-weight: 600;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             word-break: break-word;
             flex: 1;
         }
 
         .route-item-meta {
-            font-size: 0.75rem;
-            color: #888;
-            margin-top: 4px;
+            font-size: 0.72rem;
+            color: #778;
+            margin-top: 3px;
         }
 
         .route-item-actions {
             display: flex;
-            gap: 6px;
-            margin-top: 8px;
+            gap: 5px;
+            margin-top: 6px;
             flex-wrap: wrap;
         }
 
         .route-item-actions button {
-            padding: 6px 10px;
-            font-size: 0.8rem;
+            padding: 4px 8px;
+            font-size: 0.76rem;
         }
 
         .bulk-actions {
             display: flex;
-            gap: 8px;
+            gap: 6px;
         }
 
         .bulk-actions button {
             flex: 1;
+            font-size: 0.82rem;
+            padding: 7px 10px;
         }
 
         .map-container {
@@ -561,7 +574,8 @@
 
         .inline-group {
             display: flex;
-            gap: 12px;
+            gap: 10px;
+            align-items: flex-end;
         }
 
         .inline-group .form-group {
@@ -574,9 +588,9 @@
 
         .settings-row {
             display: flex;
-            gap: 12px;
+            gap: 10px;
             align-items: center;
-            font-size: 0.85rem;
+            font-size: 0.82rem;
         }
 
         .settings-row label {
@@ -609,8 +623,8 @@
 
         hr {
             border: none;
-            border-top: 1px solid #333;
-            margin: 4px 0;
+            border-top: 1px solid #1e2d50;
+            margin: 2px 0;
         }
 
         /* Custom map markers */
@@ -716,12 +730,12 @@
             display: flex;
             align-items: center;
             gap: 6px;
-            background: rgba(34, 197, 94, 0.15);
-            border: 1px solid rgba(34, 197, 94, 0.3);
+            background: rgba(34, 197, 94, 0.12);
+            border: 1px solid rgba(34, 197, 94, 0.25);
             border-radius: 6px;
-            padding: 8px 10px;
-            margin-top: 8px;
-            font-size: 0.75rem;
+            padding: 6px 10px;
+            margin-top: 6px;
+            font-size: 0.72rem;
             color: #22c55e;
         }
 
@@ -797,23 +811,24 @@
             gap: 6px;
             background: none;
             border: none;
-            color: #00d4ff;
-            font-size: 0.8rem;
+            color: #5a9bb5;
+            font-size: 0.75rem;
             cursor: pointer;
-            padding: 8px 0;
+            padding: 4px 0;
             min-height: auto;
         }
 
         .help-toggle:hover {
             background: none;
+            color: #00d4ff;
             text-decoration: underline;
         }
 
         .help-content {
             background: #0f3460;
             border-radius: 8px;
-            padding: 12px;
-            font-size: 0.8rem;
+            padding: 10px 12px;
+            font-size: 0.78rem;
             line-height: 1.5;
             display: none;
         }
@@ -1078,11 +1093,10 @@
     <nav class="sidebar" role="navigation" aria-label="Route controls">
         <header>
             <h1>🗺️ Route to GPX</h1>
-            <p style="font-size: 0.75rem; color: #888; margin-top: 4px;">Convert routes to GPX files for GPS devices</p>
+            <p class="subtitle">Convert routes to GPX files for GPS devices</p>
         </header>
 
-        <button type="button" class="help-toggle" aria-expanded="false"
-            aria-controls="helpContent">
+        <button type="button" class="help-toggle" aria-expanded="false" aria-controls="helpContent">
             <span>ℹ️</span> How it works & keyboard shortcuts
         </button>
 
@@ -1180,7 +1194,7 @@
             </div>
 
             <div class="inline-group">
-                <div class="form-group" style="flex: 2;">
+                <div class="form-group" style="flex: 1;">
                     <label for="travelMode">Mode</label>
                     <select id="travelMode" title="Transportation method">
                         <option value="DRIVE">🚗 Drive</option>
@@ -1189,20 +1203,11 @@
                         <option value="TRANSIT">🚌 Transit</option>
                     </select>
                 </div>
-                <div class="form-group" style="flex: 3;">
-                    <label>
-                        Color
-                        <span class="info-tooltip" tabindex="0" role="button" aria-label="About colors">
-                            ?
-                            <span class="tooltip-text">
-                                Colors auto-cycle for each new route. Click to choose from presets.
-                            </span>
-                        </span>
-                    </label>
+                <div class="form-group" style="flex: 0 0 auto;">
+                    <label>Color</label>
                     <div class="color-picker-wrapper">
-                        <button type="button" id="colorSwatch" class="color-swatch"
-                            aria-label="Select route color" aria-haspopup="true" aria-expanded="false"
-                            title="Click to choose color"></button>
+                        <button type="button" id="colorSwatch" class="color-swatch" aria-label="Select route color"
+                            aria-haspopup="true" aria-expanded="false" title="Click to choose color"></button>
                         <input type="hidden" id="routeColor" value="#ff4757" />
                         <div class="color-dropdown" id="colorDropdown" role="listbox" aria-label="Color options">
                             <div class="color-dropdown-grid" id="colorOptions"></div>
@@ -1214,8 +1219,8 @@
             <div class="settings-row">
                 <span>Distance:</span>
                 <div class="unit-toggle" role="radiogroup" aria-label="Distance unit">
-                    <button type="button" id="unitKm" class="active" role="radio"
-                        aria-checked="true" title="Show distances in kilometers">km</button>
+                    <button type="button" id="unitKm" class="active" role="radio" aria-checked="true"
+                        title="Show distances in kilometers">km</button>
                     <button type="button" id="unitMi" role="radio" aria-checked="false"
                         title="Show distances in miles">mi</button>
                 </div>
@@ -1232,12 +1237,12 @@
 
         <section aria-labelledby="routes-heading">
             <div class="bulk-actions">
-                <button class="btn-outline" id="downloadAllBtn" disabled
-                    aria-label="Download all routes as GPX files" title="Download every route as a separate GPX file">
+                <button class="btn-outline" id="downloadAllBtn" disabled aria-label="Download all routes as GPX files"
+                    title="Download every route as a separate GPX file">
                     📥 Download All
                 </button>
-                <button class="btn-secondary" id="clearAllBtn" disabled
-                    aria-label="Remove all routes from the map" title="Remove all routes from the map and storage">
+                <button class="btn-secondary" id="clearAllBtn" disabled aria-label="Remove all routes from the map"
+                    title="Remove all routes from the map and storage">
                     🗑️ Clear All
                 </button>
             </div>
@@ -1252,13 +1257,12 @@
             tabindex="0"></div>
 
         <div class="map-controls">
-            <button type="button" id="apiKeyMapBtn" class="btn-icon api-key-btn"
-                aria-label="API Key settings" title="Google Routes API Key - Click to configure">
+            <button type="button" id="apiKeyMapBtn" class="btn-icon api-key-btn" aria-label="API Key settings"
+                title="Google Routes API Key - Click to configure">
                 🔑
             </button>
-            <button type="button" id="clickModeBtn" class="btn-icon"
-                aria-label="Toggle click-to-add mode" aria-pressed="false"
-                title="Click-to-add mode: Click the map to set origin, destination, and waypoints">
+            <button type="button" id="clickModeBtn" class="btn-icon" aria-label="Toggle click-to-add mode"
+                aria-pressed="false" title="Click-to-add mode: Click the map to set origin, destination, and waypoints">
                 ✚
             </button>
             <button type="button" class="btn-icon" id="locateMeBtn" aria-label="Center map on my location"

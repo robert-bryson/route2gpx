@@ -861,10 +861,10 @@ function renderRoutesList() {
 
     if (routes.length === 0) {
         list.innerHTML = `
-            <div style="color: #888; text-align: center; padding: 24px;">
-                <div style="font-size: 2rem; margin-bottom: 8px;">🗺️</div>
-                <div style="font-weight: 600; margin-bottom: 4px;">No routes yet</div>
-                <div style="font-size: 0.8rem; color: #666;">Enter an origin and destination above, then press Enter or click "Get Route"</div>
+            <div style="color: #778; text-align: center; padding: 20px;">
+                <div style="font-size: 1.6rem; margin-bottom: 6px;">🗺️</div>
+                <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px;">No routes yet</div>
+                <div style="font-size: 0.75rem; color: #556;">Enter an origin and destination, then press Enter</div>
             </div>
         `;
         return;
@@ -894,7 +894,7 @@ function renderRoutesList() {
                 <button class="btn-outline btn-small" data-action="download-route" data-route-id="${route.id}"
                         aria-label="Download GPX for ${escapeHtml(route.name)}"
                         title="Download as GPX file for GPS devices">
-                    📥 GPX
+                    💾 GPX
                 </button>
                 <button class="btn-secondary btn-small" data-action="remove-route" data-route-id="${route.id}"
                         aria-label="Delete route ${escapeHtml(route.name)}"
