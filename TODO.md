@@ -1,2 +1,6 @@
 - [ ] Be able to load Fog of World data onto map
   - [ ] be able to manipulate the FoW data? directly bake new GPS data into it?
+- [ ] better map ui:
+  - [ ] user should be able to click on map to have start/end
+  - [ ] user should be able to set intermediary checkpoints along route
+- [ ] better export names: better, more specific defaults. allow user to confirm/change before saving
