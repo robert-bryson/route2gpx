@@ -1,0 +1,29 @@
+{
+  "name": "route2gpx",
+  "version": "1.0.0",
+  "description": "Sometimes you gotta fudge a track..",
+  "main": "app.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robert-bryson/route2gpx.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/robert-bryson/route2gpx/issues"
+  },
+  "homepage": "https://github.com/robert-bryson/route2gpx#readme",
+  "devDependencies": {
+    "jsdom": "^29.0.1",
+    "vitest": "^4.1.2"
+  }
+}

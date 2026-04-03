@@ -6,6 +6,9 @@
 terraform.tfvars
 terraform.tfvars.json
 
+# Node
+node_modules/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

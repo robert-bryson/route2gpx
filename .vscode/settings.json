@@ -4,6 +4,7 @@
         "/^which python3 && python3 -m pip install \"black==999\" 2>&1 \\| head -10$/": {
             "approve": true,
             "matchCommandLine": true
-        }
+        },
+        "pytest": true
     }
 }
