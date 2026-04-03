@@ -1,0 +1,9 @@
+# Required
+github_token = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# Optional — uncomment to override defaults
+# domain_name       = "rsmb.tv"
+# subdomain         = "route2gpx"
+# production_branch = "main"
+# staging_branch    = "dev"
+# alert_email       = "you@example.com"
