@@ -769,9 +769,8 @@
             visibility: hidden;
             opacity: 0;
             position: absolute;
-            bottom: 125%;
-            left: 50%;
-            transform: translateX(-50%);
+            top: 125%;
+            left: 0;
             background: #1a1a2e;
             color: #eee;
             padding: 10px 12px;
@@ -790,12 +789,11 @@
         .info-tooltip .tooltip-text::after {
             content: '';
             position: absolute;
-            top: 100%;
-            left: 50%;
-            margin-left: -6px;
+            bottom: 100%;
+            left: 6px;
             border-width: 6px;
             border-style: solid;
-            border-color: #333 transparent transparent transparent;
+            border-color: transparent transparent #333 transparent;
         }
 
         .info-tooltip:hover .tooltip-text,
