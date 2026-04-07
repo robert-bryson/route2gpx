@@ -1667,6 +1667,7 @@ document.getElementById('confirmFilenameBtn').addEventListener('click', confirmF
 // ============ Initialize ============
 selectRandomColor(); // Pick initial random color
 setupImport();
+setupFogOfWorld();
 loadFromStorage();
 renderRoutesList();
 updateApiKeyStatus();

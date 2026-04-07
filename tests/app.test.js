@@ -76,12 +76,13 @@ beforeAll(() => {
     'apiKeyModal', 'apiKeyInput', 'status', 'travelMode',
     'filenameModal', 'filenameInput', 'filenamePreview', 'cancelFilenameBtn', 'confirmFilenameBtn',
     'importDropZone', 'importFileInput',
+    'fogDropZone', 'fogFileInput', 'fogBadge', 'fogRemoveBtn',
   ];
 
   ids.forEach(id => {
     const el = document.createElement(
       ['origin', 'destination', 'apiKeyInput', 'routeColor', 'filenameInput'].includes(id) ? 'input' :
-      id === 'importFileInput' ? 'input' : 'div'
+        id === 'importFileInput' ? 'input' : 'div'
     );
     el.id = id;
     if (id === 'importFileInput') {
@@ -110,6 +111,19 @@ beforeAll(() => {
     btn.setAttribute('data-gps-field', field);
     document.body.appendChild(btn);
   });
+
+  // Mock pako (used by fog.js)
+  globalThis.pako = {
+    inflate: vi.fn(() => new Uint8Array(0)),
+  };
+
+  // Mock JSZip (used by app.js and fog.js)
+  globalThis.JSZip = vi.fn();
+  globalThis.JSZip.loadAsync = vi.fn(() => Promise.resolve({ files: {} }));
+
+  // Load fog.js into global scope (must be before app.js since app.js calls setupFogOfWorld)
+  const fogCode = readFileSync(resolve(__dirname, '..', 'fog.js'), 'utf-8');
+  (0, eval)(fogCode);
 
   // Load app.js into global scope via indirect eval
   const code = readFileSync(resolve(__dirname, '..', 'app.js'), 'utf-8');
