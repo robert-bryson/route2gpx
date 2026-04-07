@@ -76,7 +76,7 @@ beforeAll(() => {
     'apiKeyModal', 'apiKeyInput', 'status', 'travelMode',
     'filenameModal', 'filenameInput', 'filenamePreview', 'cancelFilenameBtn', 'confirmFilenameBtn',
     'importDropZone', 'importFileInput',
-    'fogDropZone', 'fogFileInput', 'fogBadge', 'fogRemoveBtn',
+    'fogDropZone', 'fogFileInput', 'fogBadge', 'fogRemoveBtn', 'fogVisibilityToggle',
   ];
 
   ids.forEach(id => {

@@ -173,83 +173,87 @@ function createFogCanvasLayer(fogMap, opacity) {
 
             const zoom = coords.z;
 
-            if (zoom <= FOW_TILE_ZOOM) {
-                // One map tile may contain multiple FoW tiles
-                const fowTilesPerMapTile = 1 << (FOW_TILE_ZOOM - zoom);
-                const fowTileXMin = coords.x * fowTilesPerMapTile;
-                const fowTileYMin = coords.y * fowTilesPerMapTile;
+            try {
+                if (zoom <= FOW_TILE_ZOOM) {
+                    // One map tile may contain multiple FoW tiles
+                    const fowTilesPerMapTile = 1 << (FOW_TILE_ZOOM - zoom);
+                    const fowTileXMin = coords.x * fowTilesPerMapTile;
+                    const fowTileYMin = coords.y * fowTilesPerMapTile;
 
-                const fowTilePixelSize = tileSize.x / fowTilesPerMapTile;
+                    const fowTilePixelSize = tileSize.x / fowTilesPerMapTile;
 
-                for (let fx = 0; fx < fowTilesPerMapTile; fx++) {
-                    for (let fy = 0; fy < fowTilesPerMapTile; fy++) {
-                        const fowTileX = fowTileXMin + fx;
-                        const fowTileY = fowTileYMin + fy;
-                        const tile = fogMap.tiles.get(FowTile.makeKey(fowTileX, fowTileY));
-                        if (tile) {
-                            renderFowTileOnCanvas(ctx, tile, fowTilePixelSize,
-                                fx * fowTilePixelSize, fy * fowTilePixelSize);
-                        }
-                    }
-                }
-            } else if (zoom <= FOW_TILE_ZOOM + FOW_TILE_WIDTH_OFFSET) {
-                // One map tile corresponds to a portion of one FoW tile
-                const tileOverOffset = zoom - FOW_TILE_ZOOM;
-                const fowTileX = coords.x >> tileOverOffset;
-                const fowTileY = coords.y >> tileOverOffset;
-                const subTileMask = (1 << tileOverOffset) - 1;
-
-                const blocksPerMapTile = FOW_TILE_WIDTH >> tileOverOffset;
-                const blockXMin = (coords.x & subTileMask) * blocksPerMapTile;
-                const blockYMin = (coords.y & subTileMask) * blocksPerMapTile;
-
-                const blockPixelSize = tileSize.x / blocksPerMapTile;
-
-                const tile = fogMap.tiles.get(FowTile.makeKey(fowTileX, fowTileY));
-                if (tile) {
-                    for (let bx = 0; bx < blocksPerMapTile; bx++) {
-                        for (let by = 0; by < blocksPerMapTile; by++) {
-                            const block = tile.blocks.get(FowTile.makeKey(blockXMin + bx, blockYMin + by));
-                            if (block) {
-                                renderBlockOnCanvas(ctx, block, blockPixelSize,
-                                    bx * blockPixelSize, by * blockPixelSize);
+                    for (let fx = 0; fx < fowTilesPerMapTile; fx++) {
+                        for (let fy = 0; fy < fowTilesPerMapTile; fy++) {
+                            const fowTileX = fowTileXMin + fx;
+                            const fowTileY = fowTileYMin + fy;
+                            const tile = fogMap.tiles.get(FowTile.makeKey(fowTileX, fowTileY));
+                            if (tile) {
+                                renderFowTileOnCanvas(ctx, tile, fowTilePixelSize,
+                                    fx * fowTilePixelSize, fy * fowTilePixelSize);
                             }
                         }
                     }
-                }
-            } else {
-                // Sub-block rendering: one map tile shows part of one block
-                const tileOverOffset = zoom - FOW_TILE_ZOOM;
-                const fowTileX = coords.x >> tileOverOffset;
-                const fowTileY = coords.y >> tileOverOffset;
+                } else if (zoom <= FOW_TILE_ZOOM + FOW_TILE_WIDTH_OFFSET) {
+                    // One map tile corresponds to a portion of one FoW tile
+                    const tileOverOffset = zoom - FOW_TILE_ZOOM;
+                    const fowTileX = coords.x >> tileOverOffset;
+                    const fowTileY = coords.y >> tileOverOffset;
+                    const subTileMask = (1 << tileOverOffset) - 1;
 
-                const blockOverOffset = zoom - FOW_TILE_ZOOM - FOW_TILE_WIDTH_OFFSET;
-                const subTileMask = (1 << (zoom - FOW_TILE_ZOOM)) - 1;
-                const blockX = (coords.x & subTileMask) >> blockOverOffset;
-                const blockY = (coords.y & subTileMask) >> blockOverOffset;
+                    const blocksPerMapTile = FOW_TILE_WIDTH >> tileOverOffset;
+                    const blockXMin = (coords.x & subTileMask) * blocksPerMapTile;
+                    const blockYMin = (coords.y & subTileMask) * blocksPerMapTile;
 
-                const subBlockMask = (1 << blockOverOffset) - 1;
-                const pixelsPerMapTile = FOW_BITMAP_WIDTH >> blockOverOffset;
-                const pixelXMin = (coords.x & subBlockMask) * pixelsPerMapTile;
-                const pixelYMin = (coords.y & subBlockMask) * pixelsPerMapTile;
-                const pixelSize = tileSize.x / pixelsPerMapTile;
+                    const blockPixelSize = tileSize.x / blocksPerMapTile;
 
-                const tile = fogMap.tiles.get(FowTile.makeKey(fowTileX, fowTileY));
-                if (tile) {
-                    const block = tile.blocks.get(FowTile.makeKey(blockX, blockY));
-                    if (block) {
-                        for (let px = 0; px < pixelsPerMapTile; px++) {
-                            for (let py = 0; py < pixelsPerMapTile; py++) {
-                                if (block.isVisited(pixelXMin + px, pixelYMin + py)) {
-                                    ctx.clearRect(
-                                        px * pixelSize, py * pixelSize,
-                                        pixelSize, pixelSize
-                                    );
+                    const tile = fogMap.tiles.get(FowTile.makeKey(fowTileX, fowTileY));
+                    if (tile) {
+                        for (let bx = 0; bx < blocksPerMapTile; bx++) {
+                            for (let by = 0; by < blocksPerMapTile; by++) {
+                                const block = tile.blocks.get(FowTile.makeKey(blockXMin + bx, blockYMin + by));
+                                if (block) {
+                                    renderBlockOnCanvas(ctx, block, blockPixelSize,
+                                        bx * blockPixelSize, by * blockPixelSize);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Sub-block rendering: one map tile shows part of one block
+                    const tileOverOffset = zoom - FOW_TILE_ZOOM;
+                    const fowTileX = coords.x >> tileOverOffset;
+                    const fowTileY = coords.y >> tileOverOffset;
+
+                    const blockOverOffset = zoom - FOW_TILE_ZOOM - FOW_TILE_WIDTH_OFFSET;
+                    const subTileMask = (1 << (zoom - FOW_TILE_ZOOM)) - 1;
+                    const blockX = (coords.x & subTileMask) >> blockOverOffset;
+                    const blockY = (coords.y & subTileMask) >> blockOverOffset;
+
+                    const subBlockMask = (1 << blockOverOffset) - 1;
+                    const pixelsPerMapTile = FOW_BITMAP_WIDTH >> blockOverOffset;
+                    const pixelXMin = (coords.x & subBlockMask) * pixelsPerMapTile;
+                    const pixelYMin = (coords.y & subBlockMask) * pixelsPerMapTile;
+                    const pixelSize = tileSize.x / pixelsPerMapTile;
+
+                    const tile = fogMap.tiles.get(FowTile.makeKey(fowTileX, fowTileY));
+                    if (tile) {
+                        const block = tile.blocks.get(FowTile.makeKey(blockX, blockY));
+                        if (block) {
+                            for (let px = 0; px < pixelsPerMapTile; px++) {
+                                for (let py = 0; py < pixelsPerMapTile; py++) {
+                                    if (block.isVisited(pixelXMin + px, pixelYMin + py)) {
+                                        ctx.clearRect(
+                                            px * pixelSize, py * pixelSize,
+                                            pixelSize, pixelSize
+                                        );
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            } catch (e) {
+                console.warn('Fog tile render error at zoom', zoom, coords, e);
             }
 
             return canvas;
@@ -258,7 +262,6 @@ function createFogCanvasLayer(fogMap, opacity) {
 
     return new FogLayer({
         tileSize: 256,
-        opacity: 1, // Layer opacity handled via fill
         maxZoom: 19,
         minZoom: 0
     });
@@ -268,8 +271,12 @@ function renderFowTileOnCanvas(ctx, fowTile, tilePixelSize, dx, dy) {
     const blockPixelSize = tilePixelSize / FOW_TILE_WIDTH;
 
     if (blockPixelSize < 1) {
-        // At very low zoom, blocks are sub-pixel — just clear the tile area if it has data
-        ctx.clearRect(dx, dy, tilePixelSize, tilePixelSize);
+        // Sub-pixel blocks: each block with data clears one output pixel
+        for (const block of fowTile.blocks.values()) {
+            const bx = Math.floor(block.x * blockPixelSize);
+            const by = Math.floor(block.y * blockPixelSize);
+            ctx.clearRect(dx + bx, dy + by, 1, 1);
+        }
         return;
     }
 
@@ -284,20 +291,27 @@ function renderBlockOnCanvas(ctx, block, blockPixelSize, dx, dy) {
     const pixelSize = blockPixelSize / FOW_BITMAP_WIDTH;
 
     if (pixelSize < 1) {
-        // Sub-pixel: if block has any data, just clear the whole block area
-        ctx.clearRect(dx, dy, blockPixelSize, blockPixelSize);
-        return;
-    }
-
-    for (let x = 0; x < FOW_BITMAP_WIDTH; x++) {
-        for (let y = 0; y < FOW_BITMAP_WIDTH; y++) {
-            if (block.isVisited(x, y)) {
-                ctx.clearRect(
-                    dx + x * pixelSize,
-                    dy + y * pixelSize,
-                    pixelSize,
-                    pixelSize
-                );
+        // Sub-pixel bitmap: each visited pixel clears one output pixel
+        for (let x = 0; x < FOW_BITMAP_WIDTH; x++) {
+            for (let y = 0; y < FOW_BITMAP_WIDTH; y++) {
+                if (block.isVisited(x, y)) {
+                    const px = Math.floor(x * pixelSize);
+                    const py = Math.floor(y * pixelSize);
+                    ctx.clearRect(dx + px, dy + py, 1, 1);
+                }
+            }
+        }
+    } else {
+        for (let x = 0; x < FOW_BITMAP_WIDTH; x++) {
+            for (let y = 0; y < FOW_BITMAP_WIDTH; y++) {
+                if (block.isVisited(x, y)) {
+                    ctx.clearRect(
+                        dx + x * pixelSize,
+                        dy + y * pixelSize,
+                        Math.ceil(pixelSize),
+                        Math.ceil(pixelSize)
+                    );
+                }
             }
         }
     }
@@ -333,15 +347,23 @@ function removeFogOfWorldLayer() {
     }
 }
 
+function toggleFogVisibility() {
+    const checkbox = document.getElementById('fogVisibilityToggle');
+    if (!currentFogLayer || !currentFogMap) return;
+    if (checkbox.checked) {
+        currentFogLayer.addTo(map);
+    } else {
+        map.removeLayer(currentFogLayer);
+    }
+}
+
 function updateFogControls() {
     const badge = document.getElementById('fogBadge');
-    const removeBtn = document.getElementById('fogRemoveBtn');
     if (currentFogMap) {
         badge.style.display = 'flex';
-        removeBtn.style.display = 'inline-block';
+        document.getElementById('fogVisibilityToggle').checked = currentFogLayer && map.hasLayer(currentFogLayer);
     } else {
         badge.style.display = 'none';
-        removeBtn.style.display = 'none';
     }
 }
 
@@ -385,13 +407,18 @@ function setupFogOfWorld() {
 
     dropZone.addEventListener('dragover', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         dropZone.classList.add('drag-over');
     });
-    dropZone.addEventListener('dragleave', () => {
-        dropZone.classList.remove('drag-over');
+    dropZone.addEventListener('dragleave', (e) => {
+        // Only remove highlight when leaving the drop zone itself, not its children
+        if (e.target === dropZone) {
+            dropZone.classList.remove('drag-over');
+        }
     });
     dropZone.addEventListener('drop', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         dropZone.classList.remove('drag-over');
         const files = e.dataTransfer.files;
         if (files.length > 0) {
@@ -410,6 +437,8 @@ function setupFogOfWorld() {
         removeFogOfWorldLayer();
         showStatus('Fog of World layer removed');
     });
+
+    document.getElementById('fogVisibilityToggle').addEventListener('change', toggleFogVisibility);
 
     updateFogControls();
 }

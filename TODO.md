@@ -9,5 +9,5 @@
 - [ ] route drag-to-edit (adjust path after computation)
 - [ ] address autocomplete/geocoding suggestions
 - [ ] URL-based route sharing (encode params in hash)
-- [ ] Be able to load Fog of World data onto map (FoW uses proprietary format; GPX import covers the export path)
+- [x] Be able to load Fog of World data onto map (FoW uses proprietary format; GPX import covers the export path)
   - [ ] be able to manipulate the FoW data? directly bake new GPS data into it?

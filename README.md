@@ -20,6 +20,7 @@ A fully client-side web app that runs entirely in your browser. Your API key and
 - 📱 Mobile-friendly responsive design
 - ♿ Full keyboard navigation and screen reader support
 - 🔒 100% private — runs entirely in your browser
+- 🌫️ Fog of World data visualization — upload your FoW `.zip` export to see explored areas on the map
 
 ### Getting Started (Web)
 

@@ -968,6 +968,10 @@
             margin-bottom: 4px;
         }
 
+        .import-section>* {
+            pointer-events: none;
+        }
+
         /* Fog of World section */
         .fog-section:hover,
         .fog-section.drag-over {
@@ -987,6 +991,18 @@
             margin-top: 6px;
             font-size: 0.78rem;
             color: #a78bfa;
+        }
+
+        .fog-badge-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+
+        .fog-badge-label input[type="checkbox"] {
+            accent-color: #a78bfa;
+            cursor: pointer;
         }
 
         /* API Key Status */
@@ -1305,12 +1321,15 @@
                 aria-label="Import Fog of World data. Click to browse or drag and drop a ZIP file.">
                 <div class="import-icon">🌫️</div>
                 <p><strong>Fog of World</strong></p>
-                <p>Drop your Fog of World .zip export</p>
+                <p>Drag & drop or click to browse</p>
             </div>
             <input type="file" id="fogFileInput" accept=".zip" style="display: none;" aria-hidden="true" />
             <div id="fogBadge" class="fog-badge" style="display: none;">
-                <span>🌫️ Fog of World layer active</span>
-                <button type="button" id="fogRemoveBtn" class="btn-small btn-secondary" style="display: none;"
+                <label class="fog-badge-label">
+                    <input type="checkbox" id="fogVisibilityToggle" checked />
+                    🌫️ Fog of World layer
+                </label>
+                <button type="button" id="fogRemoveBtn" class="btn-small btn-secondary"
                     aria-label="Remove Fog of World layer">✕ Remove</button>
             </div>
         </section>
@@ -1363,8 +1382,8 @@
         crossorigin="anonymous"></script>
     <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js" crossorigin="anonymous"></script>
-    <script src="app.js" defer></script>
     <script src="fog.js" defer></script>
+    <script src="app.js" defer></script>
 
     <!-- API Key Modal -->
     <div class="modal-overlay" id="apiKeyModal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
