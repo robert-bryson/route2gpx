@@ -7,6 +7,7 @@
     "test": "tests"
   },
   "scripts": {
+    "build": "node build.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -21,8 +22,9 @@
   "bugs": {
     "url": "https://github.com/robert-bryson/route2gpx/issues"
   },
-  "homepage": "https://github.com/robert-bryson/route2gpx#readme",
+  "homepage": "https://route2gpx.rsmb.tv/",
   "devDependencies": {
+    "esbuild": "^0.28.0",
     "jsdom": "^29.0.1",
     "vitest": "^4.1.2"
   }

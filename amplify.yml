@@ -1,14 +1,16 @@
 version: 1
 frontend:
   phases:
+    preBuild:
+      commands:
+        - npm ci
     build:
       commands:
-        - echo "No build step — static site"
+        - npm run build
   artifacts:
-    baseDirectory: /
+    baseDirectory: dist
     files:
-      - index.html
-      - app.js
-      - robots.txt
+      - '**/*'
   cache:
-    paths: []
+    paths:
+      - node_modules/**/*

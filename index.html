@@ -86,6 +86,24 @@
             margin-top: 4px;
         }
 
+        .sidebar-footer {
+            margin-top: auto;
+            padding-top: 12px;
+            border-top: 1px solid #1e2d50;
+            text-align: center;
+            font-size: 0.75rem;
+            color: #667;
+        }
+
+        .sidebar-footer a {
+            color: #667;
+            text-decoration: none;
+        }
+
+        .sidebar-footer a:hover {
+            color: #00d4ff;
+        }
+
         .form-group {
             display: flex;
             flex-direction: column;
@@ -1353,6 +1371,12 @@
             <h2 id="routes-heading" class="sr-only">Saved Routes</h2>
             <div class="routes-list" id="routesList" role="list" aria-label="List of routes"></div>
         </section>
+
+        <footer class="sidebar-footer">
+            <a href="https://rsmb.tv" target="_blank" rel="noopener noreferrer">rsmb.tv</a>
+            <span>·</span>
+            <a href="https://github.com/robert-bryson/route2gpx" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </footer>
     </nav>
 
     <div class="map-container">
@@ -1382,11 +1406,13 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"
         crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js" crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js" crossorigin="anonymous"></script>
-    <script src="parsers.js" defer></script>
-    <script src="fog.js" defer></script>
-    <script src="app.js" defer></script>
+    <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"
+        integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG"
+        crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"
+        integrity="sha384-rNlaE5fs9dGIjmxWDALQh/RBAaGRYT5ChrzHo6tRfgrZ36iRFAiquP5g41Jsv+0j"
+        crossorigin="anonymous"></script>
+    <script src="app.bundle.min.js" defer></script>
 
     <!-- API Key Modal -->
     <div class="modal-overlay" id="apiKeyModal" role="dialog" aria-modal="true" aria-labelledby="modal-title">

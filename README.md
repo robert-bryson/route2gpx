@@ -6,7 +6,7 @@ Convert routes from Google Routes API into GPX files for GPS devices, bike compu
 
 ## 🌐 Web App
 
-**[Try it online →](https://robert-bryson.github.io/route2gpx/)** — No installation required!
+**[Try it online →](https://route2gpx.rsmb.tv/)** — No installation required!
 
 A fully client-side web app that runs entirely in your browser. Your API key and routes never touch a server.
 

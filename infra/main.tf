@@ -22,7 +22,17 @@ resource "aws_amplify_app" "route2gpx" {
             value: 'max-age=31536000; includeSubDomains'
           - key: 'Permissions-Policy'
             value: 'geolocation=(self), camera=(), microphone=()'
+      - pattern: '*.js'
+        headers:
+          - key: 'Cache-Control'
+            value: 'public, max-age=31536000, immutable'
   HEADERS
+
+  custom_rule {
+    source = "/<*>"
+    target = "/index.html"
+    status = "404-200"
+  }
 }
 
 resource "aws_amplify_branch" "main" {

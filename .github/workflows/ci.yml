@@ -51,6 +51,9 @@ jobs:
       - name: Run tests
         run: npx vitest run
 
+      - name: Verify build
+        run: npm run build
+
   terraform:
     name: Terraform validate
     runs-on: ubuntu-latest
