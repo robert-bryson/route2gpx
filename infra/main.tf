@@ -29,6 +29,12 @@ resource "aws_amplify_app" "route2gpx" {
   HEADERS
 
   custom_rule {
+    source = "/api/elevation/<*>"
+    target = "https://api.opentopodata.org/<*>"
+    status = "200"
+  }
+
+  custom_rule {
     source = "/<*>"
     target = "/index.html"
     status = "404-200"

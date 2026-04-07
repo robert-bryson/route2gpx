@@ -1187,7 +1187,7 @@ async function fetchElevations(coordinates) {
         const locations = batch.map(([lat, lng]) => `${lat.toFixed(6)},${lng.toFixed(6)}`).join('|');
 
         try {
-            const response = await fetch(`https://api.opentopodata.org/v1/srtm90m?locations=${encodeURIComponent(locations)}`);
+            const response = await fetch(`/api/elevation/v1/srtm90m?locations=${encodeURIComponent(locations)}`);
             if (!response.ok) throw new Error(`Elevation API error: ${response.status}`);
 
             const data = await response.json();
