@@ -1,6 +1,13 @@
-- [ ] Be able to load Fog of World data onto map
+- [x] better map ui:
+  - [x] user should be able to click on map to have start/end
+  - [x] user should be able to set intermediary checkpoints along route
+- [x] better export names: filename confirmation modal before download
+- [x] real elevation data via Open-Topo-Data API
+- [x] GPX/KML import & overlay on map (drag-and-drop or file picker)
+- [x] batch ZIP export for multiple routes
+- [ ] alternative routing engine (OSRM) as free fallback to Google Routes API
+- [ ] route drag-to-edit (adjust path after computation)
+- [ ] address autocomplete/geocoding suggestions
+- [ ] URL-based route sharing (encode params in hash)
+- [ ] Be able to load Fog of World data onto map (FoW uses proprietary format; GPX import covers the export path)
   - [ ] be able to manipulate the FoW data? directly bake new GPS data into it?
-- [ ] better map ui:
-  - [ ] user should be able to click on map to have start/end
-  - [ ] user should be able to set intermediary checkpoints along route
-- [ ] better export names: better, more specific defaults. allow user to confirm/change before saving

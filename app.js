@@ -86,6 +86,7 @@ function saveToStorage() {
             travelMode: r.travelMode,
             color: r.color,
             coordinates: r.coordinates,
+            elevations: r.elevations || null,
             distance: r.distance,
             duration: r.duration
         }));
@@ -805,6 +806,13 @@ async function getRoute() {
         // Pick a random color for the next route
         selectRandomColor();
 
+        // Fetch elevation data in the background
+        enrichRouteElevations(route).then(() => {
+            if (route.elevations && route.elevations.some(e => e !== null)) {
+                showStatus(`Elevation data added for: ${route.name}`);
+            }
+        });
+
         // Return focus to origin for next route
         document.getElementById('origin').focus();
 
@@ -907,7 +915,7 @@ function renderRoutesList() {
 }
 
 function getModeEmoji(mode) {
-    const emojis = { DRIVE: '🚗', TRANSIT: '🚌', BICYCLE: '🚴', WALK: '🚶' };
+    const emojis = { DRIVE: '🚗', TRANSIT: '🚌', BICYCLE: '🚴', WALK: '🚶', IMPORTED: '📂' };
     return emojis[mode] || '📍';
 }
 
@@ -1050,8 +1058,9 @@ function generateGPX(route) {
 
     coords.forEach(([lat, lng], idx) => {
         const time = new Date(now.getTime() + idx * intervalMs).toISOString();
+        const ele = (route.elevations && route.elevations[idx] != null) ? route.elevations[idx] : 0;
         lines.push(`      <trkpt lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}">`);
-        lines.push('        <ele>0</ele>');
+        lines.push(`        <ele>${ele}</ele>`);
         lines.push(`        <time>${time}</time>`);
         lines.push('      </trkpt>');
     });
@@ -1063,13 +1072,57 @@ function generateGPX(route) {
     return lines.join('\n');
 }
 
+// ============ Filename Confirmation Modal ============
+let pendingDownload = null; // { routeId, gpxContent, defaultFilename }
+
+function openFilenameModal(routeId, gpxContent, defaultFilename) {
+    pendingDownload = { routeId, gpxContent, defaultFilename };
+    const input = document.getElementById('filenameInput');
+    const preview = document.getElementById('filenamePreview');
+    input.value = defaultFilename;
+    preview.textContent = defaultFilename;
+    document.getElementById('filenameModal').classList.add('visible');
+    input.focus();
+    input.select();
+}
+
+function closeFilenameModal() {
+    document.getElementById('filenameModal').classList.remove('visible');
+    pendingDownload = null;
+}
+
+function confirmFilenameDownload() {
+    if (!pendingDownload) return;
+    let filename = document.getElementById('filenameInput').value.trim();
+    if (!filename) filename = pendingDownload.defaultFilename;
+    if (!filename.toLowerCase().endsWith('.gpx')) filename += '.gpx';
+    filename = sanitizeFilename(filename.replace(/\.gpx$/i, '')) + '.gpx';
+    downloadFile(pendingDownload.gpxContent, filename, 'application/gpx+xml');
+    closeFilenameModal();
+}
+
+// Modal event listeners
+document.getElementById('filenameModal').addEventListener('click', function (e) {
+    if (e.target === this) closeFilenameModal();
+});
+document.getElementById('filenameInput').addEventListener('input', function () {
+    let val = this.value.trim();
+    if (!val) val = pendingDownload?.defaultFilename || 'route.gpx';
+    if (!val.toLowerCase().endsWith('.gpx')) val += '.gpx';
+    document.getElementById('filenamePreview').textContent = sanitizeFilename(val.replace(/\.gpx$/i, '')) + '.gpx';
+});
+document.getElementById('filenameInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); confirmFilenameDownload(); }
+    else if (e.key === 'Escape') closeFilenameModal();
+});
+
 function downloadRoute(id) {
     const route = routes.find(r => r.id === id);
     if (!route) return;
 
     const gpx = generateGPX(route);
     const filename = `${sanitizeFilename(route.travelMode.toLowerCase())}_${sanitizeFilename(route.name)}.gpx`;
-    downloadFile(gpx, filename, 'application/gpx+xml');
+    openFilenameModal(id, gpx, filename);
 }
 
 function downloadAllRoutes() {
@@ -1080,10 +1133,35 @@ function downloadAllRoutes() {
         return;
     }
 
-    // Download each with a slight delay
-    routes.forEach((route, idx) => {
-        setTimeout(() => downloadRoute(route.id), idx * 300);
-    });
+    // Batch download as ZIP
+    if (typeof JSZip !== 'undefined') {
+        const zip = new JSZip();
+        routes.forEach(route => {
+            const gpx = generateGPX(route);
+            const filename = `${sanitizeFilename(route.travelMode.toLowerCase())}_${sanitizeFilename(route.name)}.gpx`;
+            zip.file(filename, gpx);
+        });
+        zip.generateAsync({ type: 'blob' }).then(blob => {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'routes.zip';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showStatus(`Downloaded ${routes.length} routes as ZIP`);
+        });
+    } else {
+        // Fallback: sequential downloads
+        routes.forEach((route, idx) => {
+            setTimeout(() => {
+                const gpx = generateGPX(route);
+                const filename = `${sanitizeFilename(route.travelMode.toLowerCase())}_${sanitizeFilename(route.name)}.gpx`;
+                downloadFile(gpx, filename, 'application/gpx+xml');
+            }, idx * 300);
+        });
+    }
 }
 
 function downloadFile(content, filename, mimeType) {
@@ -1096,6 +1174,245 @@ function downloadFile(content, filename, mimeType) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+
+// ============ Elevation Data (Open-Topo-Data) ============
+async function fetchElevations(coordinates) {
+    // Open-Topo-Data allows up to 100 points per request
+    const BATCH_SIZE = 100;
+    const elevations = new Array(coordinates.length).fill(null);
+
+    for (let i = 0; i < coordinates.length; i += BATCH_SIZE) {
+        const batch = coordinates.slice(i, i + BATCH_SIZE);
+        const locations = batch.map(([lat, lng]) => `${lat.toFixed(6)},${lng.toFixed(6)}`).join('|');
+
+        try {
+            const response = await fetch(`https://api.opentopodata.org/v1/srtm90m?locations=${encodeURIComponent(locations)}`);
+            if (!response.ok) throw new Error(`Elevation API error: ${response.status}`);
+
+            const data = await response.json();
+            if (data.status === 'OK' && data.results) {
+                data.results.forEach((result, idx) => {
+                    elevations[i + idx] = result.elevation ?? null;
+                });
+            }
+        } catch (e) {
+            console.warn('Elevation fetch failed for batch:', e.message);
+            // Leave as null, GPX will use 0 as fallback
+        }
+
+        // Rate limit: 1 request per second for the free API
+        if (i + BATCH_SIZE < coordinates.length) {
+            await new Promise(resolve => setTimeout(resolve, 1100));
+        }
+    }
+
+    return elevations;
+}
+
+async function enrichRouteElevations(route) {
+    if (route.elevations && route.elevations.some(e => e !== null)) return; // Already fetched
+
+    try {
+        route.elevations = await fetchElevations(route.coordinates);
+        saveToStorage();
+    } catch (e) {
+        console.warn('Failed to fetch elevations:', e.message);
+    }
+}
+
+// ============ GPX Import ============
+function setupImport() {
+    const dropZone = document.getElementById('importDropZone');
+    const fileInput = document.getElementById('importFileInput');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('drag-over');
+    });
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) handleImportFiles(files);
+    });
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length > 0) handleImportFiles(fileInput.files);
+        fileInput.value = ''; // Reset so same file can be re-imported
+    });
+}
+
+function handleImportFiles(files) {
+    Array.from(files).forEach(file => {
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (ext !== 'gpx' && ext !== 'kml') {
+            showStatus(`Unsupported file: ${file.name}. Use .gpx or .kml`, true);
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                if (ext === 'gpx') {
+                    importGPX(reader.result, file.name);
+                } else if (ext === 'kml') {
+                    importKML(reader.result, file.name);
+                }
+            } catch (e) {
+                showStatus(`Failed to import ${file.name}: ${e.message}`, true);
+            }
+        };
+        reader.readAsText(file);
+    });
+}
+
+function importGPX(xmlString, filename) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlString, 'application/xml');
+
+    if (doc.querySelector('parsererror')) {
+        throw new Error('Invalid GPX file');
+    }
+
+    // Extract track points
+    const trkpts = doc.querySelectorAll('trkpt');
+    if (trkpts.length === 0) {
+        // Try route points
+        const rtepts = doc.querySelectorAll('rtept');
+        if (rtepts.length === 0) throw new Error('No track or route points found');
+        return importFromPoints(rtepts, doc, filename);
+    }
+
+    return importFromPoints(trkpts, doc, filename);
+}
+
+function importFromPoints(pointElements, doc, filename) {
+    const coordinates = [];
+    const elevations = [];
+
+    pointElements.forEach(pt => {
+        const lat = parseFloat(pt.getAttribute('lat'));
+        const lng = parseFloat(pt.getAttribute('lon'));
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            coordinates.push([lat, lng]);
+            const eleEl = pt.querySelector('ele');
+            elevations.push(eleEl ? parseFloat(eleEl.textContent) : null);
+        }
+    });
+
+    if (coordinates.length === 0) throw new Error('No valid coordinates found');
+
+    // Get name from metadata or track
+    const nameEl = doc.querySelector('trk > name') || doc.querySelector('metadata > name') || doc.querySelector('rte > name');
+    const name = nameEl ? nameEl.textContent : filename.replace(/\.(gpx|kml)$/i, '');
+
+    addImportedRoute(name, coordinates, elevations);
+}
+
+function importKML(xmlString, filename) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlString, 'application/xml');
+
+    if (doc.querySelector('parsererror')) {
+        throw new Error('Invalid KML file');
+    }
+
+    const coordsEl = doc.querySelector('coordinates');
+    if (!coordsEl) throw new Error('No coordinates found in KML');
+
+    const coordinates = [];
+    const elevations = [];
+
+    coordsEl.textContent.trim().split(/\s+/).forEach(triplet => {
+        const parts = triplet.split(',');
+        if (parts.length >= 2) {
+            const lng = parseFloat(parts[0]);
+            const lat = parseFloat(parts[1]);
+            const ele = parts.length >= 3 ? parseFloat(parts[2]) : null;
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                coordinates.push([lat, lng]);
+                elevations.push(Number.isFinite(ele) ? ele : null);
+            }
+        }
+    });
+
+    if (coordinates.length === 0) throw new Error('No valid coordinates found in KML');
+
+    const nameEl = doc.querySelector('Placemark > name') || doc.querySelector('Document > name');
+    const name = nameEl ? nameEl.textContent : filename.replace(/\.(gpx|kml)$/i, '');
+
+    addImportedRoute(name, coordinates, elevations);
+}
+
+function addImportedRoute(name, coordinates, elevations) {
+    // Pick a color
+    if (availableColorIndices.length === 0) resetColorPool();
+    if (availableColorIndices.length === 0) availableColorIndices = COLOR_PALETTE.map((_, i) => i);
+    const poolIdx = Math.floor(Math.random() * availableColorIndices.length);
+    const colorIndex = availableColorIndices.splice(poolIdx, 1)[0];
+    const color = COLOR_PALETTE[colorIndex];
+
+    const routeId = Date.now() + Math.floor(Math.random() * 1000);
+
+    // Calculate distance from coordinates
+    let distance = 0;
+    for (let i = 1; i < coordinates.length; i++) {
+        distance += haversineDistance(coordinates[i - 1], coordinates[i]);
+    }
+
+    const polylineLayer = L.polyline(coordinates, {
+        color: color,
+        weight: 4,
+        opacity: 0.8
+    }).addTo(map);
+
+    const markers = createRouteMarkers(coordinates, color);
+
+    const route = {
+        id: routeId,
+        name: name,
+        origin: `${coordinates[0][0].toFixed(4)}, ${coordinates[0][1].toFixed(4)}`,
+        destination: `${coordinates[coordinates.length - 1][0].toFixed(4)}, ${coordinates[coordinates.length - 1][1].toFixed(4)}`,
+        stops: [],
+        travelMode: 'IMPORTED',
+        color: color,
+        coordinates: coordinates,
+        elevations: elevations.some(e => e !== null) ? elevations : null,
+        polylineLayer: polylineLayer,
+        markers: markers,
+        distance: Math.round(distance),
+        duration: null,
+        visible: true
+    };
+
+    routes.push(route);
+
+    bindRoutePopup(polylineLayer, route);
+    bindRouteHoverEffects(route);
+    map.fitBounds(polylineLayer.getBounds(), { padding: [50, 50] });
+
+    renderRoutesList();
+    updateBulkButtons();
+    saveToStorage();
+    showStatus(`Imported: ${name} (${coordinates.length} points, ${formatDistance(distance)})`);
+}
+
+function haversineDistance([lat1, lon1], [lat2, lon2]) {
+    const R = 6371000; // Earth radius in meters
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 // ============ Keyboard Navigation ============
@@ -1344,9 +1661,12 @@ document.getElementById('clickModeBtn').addEventListener('click', toggleClickMod
 document.getElementById('locateMeBtn').addEventListener('click', locateMe);
 document.getElementById('closeModalBtn').addEventListener('click', closeApiKeyModal);
 document.getElementById('saveApiKeyBtn').addEventListener('click', saveApiKey);
+document.getElementById('cancelFilenameBtn').addEventListener('click', closeFilenameModal);
+document.getElementById('confirmFilenameBtn').addEventListener('click', confirmFilenameDownload);
 
 // ============ Initialize ============
 selectRandomColor(); // Pick initial random color
+setupImport();
 loadFromStorage();
 renderRoutesList();
 updateApiKeyStatus();

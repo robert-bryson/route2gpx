@@ -18,7 +18,7 @@
         content="Convert routes to GPX files for GPS devices. Runs entirely in your browser.">
     <link rel="canonical" href="https://route2gpx.rsmb.tv">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://*.basemaps.cartocdn.com https://unpkg.com; connect-src 'self' https://routes.googleapis.com; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'">
+        content="default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://*.basemaps.cartocdn.com https://unpkg.com; connect-src 'self' https://routes.googleapis.com https://api.opentopodata.org; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'">
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
     <link rel="preconnect" href="https://routes.googleapis.com" crossorigin>
     <link rel="dns-prefetch" href="https://basemaps.cartocdn.com">
@@ -934,6 +934,40 @@
             text-align: center;
         }
 
+        .modal .filename-preview {
+            font-size: 0.75rem;
+            color: #778;
+            margin-top: 4px;
+            word-break: break-all;
+        }
+
+        /* Import section */
+        .import-section {
+            border: 2px dashed #2a3a5c;
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+            transition: border-color 0.2s, background 0.2s;
+            cursor: pointer;
+        }
+
+        .import-section:hover,
+        .import-section.drag-over {
+            border-color: #00d4ff;
+            background: rgba(0, 212, 255, 0.05);
+        }
+
+        .import-section p {
+            font-size: 0.8rem;
+            color: #778;
+            margin: 4px 0;
+        }
+
+        .import-section .import-icon {
+            font-size: 1.4rem;
+            margin-bottom: 4px;
+        }
+
         /* API Key Status */
         .api-key-status {
             display: flex;
@@ -1233,11 +1267,24 @@
 
         <hr />
 
+        <section aria-labelledby="import-heading">
+            <h2 id="import-heading" class="sr-only">Import GPX/KML</h2>
+            <div class="import-section" id="importDropZone" role="button" tabindex="0"
+                aria-label="Import GPX or KML file. Click to browse or drag and drop.">
+                <div class="import-icon">📂</div>
+                <p><strong>Import GPX / KML</strong></p>
+                <p>Drag & drop or click to browse</p>
+            </div>
+            <input type="file" id="importFileInput" accept=".gpx,.kml" style="display: none;" aria-hidden="true" />
+        </section>
+
+        <hr />
+
         <section aria-labelledby="routes-heading">
             <div class="bulk-actions">
-                <button class="btn-outline" id="downloadAllBtn" disabled aria-label="Download all routes as GPX files"
-                    title="Download every route as a separate GPX file">
-                    📥 Download All
+                <button class="btn-outline" id="downloadAllBtn" disabled aria-label="Download all routes as ZIP"
+                    title="Download all routes bundled in a ZIP file">
+                    📥 Download All (ZIP)
                 </button>
                 <button class="btn-secondary" id="clearAllBtn" disabled aria-label="Remove all routes from the map"
                     title="Remove all routes from the map and storage">
@@ -1277,6 +1324,8 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"
         crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"
+        crossorigin="anonymous"></script>
     <script src="app.js" defer></script>
 
     <!-- API Key Modal -->
@@ -1309,6 +1358,22 @@
                 rel="noopener noreferrer" class="help-link">
                 📖 Step-by-step guide: Get a Google Routes API key →
             </a>
+        </div>
+    </div>
+
+    <!-- Filename Confirmation Modal -->
+    <div class="modal-overlay" id="filenameModal" role="dialog" aria-modal="true" aria-labelledby="filename-modal-title">
+        <div class="modal">
+            <h2 id="filename-modal-title">💾 Save GPX File</h2>
+            <div class="form-group">
+                <label for="filenameInput">Filename</label>
+                <input type="text" id="filenameInput" placeholder="route.gpx" autocomplete="off" style="width: 100%;" />
+                <div class="filename-preview" id="filenamePreview"></div>
+            </div>
+            <div class="btn-row">
+                <button type="button" class="btn-outline" id="cancelFilenameBtn">Cancel</button>
+                <button type="button" id="confirmFilenameBtn">Download</button>
+            </div>
         </div>
     </div>
 </body>

@@ -74,13 +74,19 @@ beforeAll(() => {
     'apiKeyMapBtn', 'clickModeBtn', 'locateMeBtn', 'closeModalBtn', 'saveApiKeyBtn',
     'colorOptions', 'routeColor', 'colorDropdown', 'stopsContainer', 'apiKeyStatus',
     'apiKeyModal', 'apiKeyInput', 'status', 'travelMode',
+    'filenameModal', 'filenameInput', 'filenamePreview', 'cancelFilenameBtn', 'confirmFilenameBtn',
+    'importDropZone', 'importFileInput',
   ];
 
   ids.forEach(id => {
     const el = document.createElement(
-      ['origin', 'destination', 'apiKeyInput', 'routeColor'].includes(id) ? 'input' : 'div'
+      ['origin', 'destination', 'apiKeyInput', 'routeColor', 'filenameInput'].includes(id) ? 'input' :
+      id === 'importFileInput' ? 'input' : 'div'
     );
     el.id = id;
+    if (id === 'importFileInput') {
+      el.type = 'file';
+    }
     if (id === 'travelMode') {
       const select = document.createElement('select');
       select.id = id;
@@ -493,5 +499,73 @@ describe('generateGPX', () => {
     expect(gpx).toContain('maxlat="30.000000"');
     expect(gpx).toContain('minlon="20.000000"');
     expect(gpx).toContain('maxlon="40.000000"');
+  });
+
+  test('uses elevation data when available', () => {
+    const route = {
+      name: 'Elevation Test',
+      origin: 'A',
+      destination: 'B',
+      travelMode: 'WALK',
+      stops: [],
+      coordinates: [[40.0, -74.0], [41.0, -75.0]],
+      elevations: [150.5, 200.3],
+      distance: 1000,
+      duration: '600s',
+      color: '#2ed573',
+      id: 6,
+    };
+
+    const gpx = globalThis.generateGPX(route);
+    expect(gpx).toContain('<ele>150.5</ele>');
+    expect(gpx).toContain('<ele>200.3</ele>');
+    expect(gpx).not.toContain('<ele>0</ele>');
+  });
+
+  test('falls back to 0 elevation when data is null', () => {
+    const route = {
+      name: 'No Elevation',
+      origin: 'A',
+      destination: 'B',
+      travelMode: 'DRIVE',
+      stops: [],
+      coordinates: [[40.0, -74.0], [41.0, -75.0]],
+      elevations: null,
+      distance: 1000,
+      duration: '600s',
+      color: '#ff4757',
+      id: 7,
+    };
+
+    const gpx = globalThis.generateGPX(route);
+    expect(gpx).toContain('<ele>0</ele>');
+  });
+});
+
+// ============ getModeEmoji (extended) ============
+describe('getModeEmoji extended', () => {
+  test('returns folder emoji for IMPORTED', () => {
+    expect(globalThis.getModeEmoji('IMPORTED')).toBe('📂');
+  });
+});
+
+// ============ haversineDistance ============
+describe('haversineDistance', () => {
+  test('computes zero for same point', () => {
+    const d = globalThis.haversineDistance([40.0, -74.0], [40.0, -74.0]);
+    expect(d).toBe(0);
+  });
+
+  test('computes approximately correct distance', () => {
+    // NYC to LA approx 3,944 km
+    const d = globalThis.haversineDistance([40.7128, -74.006], [34.0522, -118.2437]);
+    expect(d).toBeGreaterThan(3900000);
+    expect(d).toBeLessThan(4000000);
+  });
+
+  test('is symmetric', () => {
+    const d1 = globalThis.haversineDistance([40.7128, -74.006], [51.5074, -0.1278]);
+    const d2 = globalThis.haversineDistance([51.5074, -0.1278], [40.7128, -74.006]);
+    expect(d1).toBeCloseTo(d2, 0);
   });
 });
