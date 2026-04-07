@@ -1305,14 +1305,16 @@
         <hr />
 
         <section aria-labelledby="import-heading">
-            <h2 id="import-heading" class="sr-only">Import GPX/KML</h2>
+            <h2 id="import-heading" class="sr-only">Import GPS Files</h2>
             <div class="import-section" id="importDropZone" role="button" tabindex="0"
-                aria-label="Import GPX or KML file. Click to browse or drag and drop.">
+                aria-label="Import GPS files. Supports GPX, KML, FIT, TCX, GeoJSON, and gzipped variants. Click to browse or drag and drop.">
                 <div class="import-icon">📂</div>
-                <p><strong>Import GPX / KML</strong></p>
+                <p><strong>Import GPS Files</strong></p>
+                <p>GPX · KML · FIT · TCX · GeoJSON (+ .gz)</p>
                 <p>Drag & drop or click to browse</p>
             </div>
-            <input type="file" id="importFileInput" accept=".gpx,.kml" style="display: none;" aria-hidden="true" />
+            <input type="file" id="importFileInput" accept=".gpx,.kml,.fit,.tcx,.geojson,.json,.gz" multiple
+                style="display: none;" aria-hidden="true" />
         </section>
 
         <section aria-labelledby="fog-heading">
@@ -1382,6 +1384,7 @@
         crossorigin="anonymous"></script>
     <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js" crossorigin="anonymous"></script>
+    <script src="parsers.js" defer></script>
     <script src="fog.js" defer></script>
     <script src="app.js" defer></script>
 

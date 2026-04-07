@@ -1251,28 +1251,82 @@ function setupImport() {
     });
 }
 
-function handleImportFiles(files) {
-    Array.from(files).forEach(file => {
-        const ext = file.name.split('.').pop().toLowerCase();
-        if (ext !== 'gpx' && ext !== 'kml') {
-            showStatus(`Unsupported file: ${file.name}. Use .gpx or .kml`, true);
-            return;
-        }
+async function handleImportFiles(files) {
+    const fileArray = Array.from(files);
+    let imported = 0;
 
-        const reader = new FileReader();
-        reader.onload = () => {
-            try {
-                if (ext === 'gpx') {
-                    importGPX(reader.result, file.name);
-                } else if (ext === 'kml') {
-                    importKML(reader.result, file.name);
-                }
-            } catch (e) {
-                showStatus(`Failed to import ${file.name}: ${e.message}`, true);
-            }
-        };
-        reader.readAsText(file);
-    });
+    for (const file of fileArray) {
+        try {
+            await handleSingleImportFile(file);
+            imported++;
+        } catch (e) {
+            showStatus(`Failed to import ${file.name}: ${e.message}`, true);
+        }
+    }
+
+    if (fileArray.length > 1 && imported > 0) {
+        showStatus(`Imported ${imported} of ${fileArray.length} file(s)`);
+    }
+}
+
+function detectImportFormat(filename) {
+    const name = filename.toLowerCase();
+    if (name.endsWith('.fit.gz')) return { format: 'fit', gzipped: true };
+    if (name.endsWith('.tcx.gz')) return { format: 'tcx', gzipped: true };
+    if (name.endsWith('.gpx.gz')) return { format: 'gpx', gzipped: true };
+    if (name.endsWith('.kml.gz')) return { format: 'kml', gzipped: true };
+    if (name.endsWith('.fit')) return { format: 'fit', gzipped: false };
+    if (name.endsWith('.tcx')) return { format: 'tcx', gzipped: false };
+    if (name.endsWith('.gpx')) return { format: 'gpx', gzipped: false };
+    if (name.endsWith('.kml')) return { format: 'kml', gzipped: false };
+    if (name.endsWith('.geojson') || name.endsWith('.json')) return { format: 'geojson', gzipped: false };
+    return null;
+}
+
+async function handleSingleImportFile(file) {
+    const detected = detectImportFormat(file.name);
+    if (!detected) {
+        showStatus(`Unsupported file: ${file.name}`, true);
+        return;
+    }
+
+    const { format, gzipped } = detected;
+    let arrayBuffer = await file.arrayBuffer();
+
+    // Decompress gzipped files using pako (already loaded for FoW)
+    if (gzipped) {
+        const inflated = pako.inflate(new Uint8Array(arrayBuffer));
+        arrayBuffer = inflated.buffer;
+    }
+
+    // Strip extensions to get base name for fallback
+    const baseName = file.name.replace(/\.(fit|tcx|gpx|kml|geojson|json)(\.gz)?$/i, '');
+
+    if (format === 'gpx') {
+        const text = new TextDecoder().decode(arrayBuffer);
+        importGPX(text, baseName + '.gpx');
+        return;
+    }
+    if (format === 'kml') {
+        const text = new TextDecoder().decode(arrayBuffer);
+        importKML(text, baseName + '.kml');
+        return;
+    }
+
+    let result;
+    if (format === 'fit') {
+        result = parseFIT(arrayBuffer);
+    } else if (format === 'tcx') {
+        const text = new TextDecoder().decode(arrayBuffer);
+        result = parseTCX(text);
+    } else if (format === 'geojson') {
+        const text = new TextDecoder().decode(arrayBuffer);
+        result = parseGeoJSON(text);
+    }
+
+    const routeName = result.name || baseName;
+    const elevations = result.elevations.some(e => e !== null) ? result.elevations : null;
+    addImportedRoute(routeName, result.coordinates, elevations);
 }
 
 function importGPX(xmlString, filename) {
