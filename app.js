@@ -967,6 +967,8 @@ function toggleRouteVisibility(id) {
             route.polylineLayer.addTo(map);
             route.markers.forEach(m => m.addTo(map));
         } else {
+            route.polylineLayer.closeTooltip();
+            route.markers.forEach(m => m.closeTooltip());
             map.removeLayer(route.polylineLayer);
             route.markers.forEach(m => map.removeLayer(m));
         }
@@ -977,6 +979,8 @@ function toggleRouteVisibility(id) {
 function removeRoute(id) {
     const index = routes.findIndex(r => r.id === id);
     if (index !== -1) {
+        routes[index].polylineLayer.closeTooltip();
+        routes[index].markers.forEach(m => m.closeTooltip());
         map.removeLayer(routes[index].polylineLayer);
         routes[index].markers.forEach(m => map.removeLayer(m));
         routes.splice(index, 1);
@@ -989,6 +993,8 @@ function removeRoute(id) {
 function clearAllRoutes() {
     if (!confirm('Remove all routes? This cannot be undone.')) return;
     routes.forEach(route => {
+        route.polylineLayer.closeTooltip();
+        route.markers.forEach(m => m.closeTooltip());
         map.removeLayer(route.polylineLayer);
         route.markers.forEach(m => map.removeLayer(m));
     });
