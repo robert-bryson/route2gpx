@@ -338,17 +338,17 @@ describe('detectImportFormat', () => {
     beforeAll(() => {
         // Mock all the DOM and Leaflet dependencies
         const store = {};
-        if (!globalThis.localStorage) {
-            Object.defineProperty(globalThis, 'localStorage', {
-                value: {
-                    getItem: vi.fn((k) => store[k] ?? null),
-                    setItem: vi.fn((k, v) => { store[k] = String(v); }),
-                    removeItem: vi.fn((k) => { delete store[k]; }),
-                    clear: vi.fn(),
-                },
-                configurable: true,
-            });
-        }
+        Object.defineProperty(globalThis, 'localStorage', {
+            value: {
+                getItem: vi.fn((k) => store[k] ?? null),
+                setItem: vi.fn((k, v) => { store[k] = String(v); }),
+                removeItem: vi.fn((k) => { delete store[k]; }),
+                clear: vi.fn(() => {
+                    Object.keys(store).forEach((key) => delete store[key]);
+                }),
+            },
+            configurable: true,
+        });
 
         if (!globalThis.L) {
             const noop = vi.fn().mockReturnThis();
