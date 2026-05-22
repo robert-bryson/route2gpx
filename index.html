@@ -33,19 +33,28 @@
             padding: 0;
         }
 
+        html {
+            height: 100%;
+            overflow: hidden;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            min-height: 100vh;
-            min-height: 100dvh;
+            height: 100vh;
+            height: 100dvh;
+            min-height: 0;
+            overflow: hidden;
             background: #1a1a2e;
             color: #eee;
         }
 
         .app-shell {
             display: flex;
-            min-height: 100vh;
-            min-height: 100dvh;
+            height: 100vh;
+            height: 100dvh;
+            min-height: 0;
             width: 100%;
+            overflow: hidden;
         }
 
         /* Skip link for accessibility */
@@ -68,6 +77,9 @@
 
         .sidebar {
             width: 360px;
+            flex: 0 0 360px;
+            height: 100%;
+            min-height: 0;
             padding: 16px;
             background: #16213e;
             overflow-y: auto;
@@ -329,7 +341,7 @@
         .route-field-marker {
             width: 11px;
             height: 11px;
-            border-radius: 50%;
+            border-radius: 5px;
             justify-self: center;
             margin-bottom: 13px;
             border: 2px solid currentColor;
@@ -461,7 +473,8 @@
         }
 
         .routes-list {
-            flex: 1;
+            flex: 1 1 auto;
+            min-height: 0;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
@@ -560,9 +573,11 @@
         }
 
         .map-container {
-            flex: 1;
+            flex: 1 1 auto;
             position: relative;
-            min-height: 400px;
+            min-width: 0;
+            min-height: 0;
+            overflow: hidden;
         }
 
         #map {
@@ -584,14 +599,17 @@
             gap: 8px;
         }
 
-        .map-controls button {
+        .map-controls button,
+        .map-controls .import-section {
             background: #16213e;
             color: #eee;
             border: 2px solid #333;
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
         }
 
-        .map-controls button:hover {
+        .map-controls button:hover,
+        .map-controls .import-section:hover,
+        .map-controls .import-section.drag-over {
             background: #0f3460;
         }
 
@@ -712,12 +730,14 @@
             gap: 4px;
         }
 
-        .route-popup .popup-actions {
+        .route-popup .popup-actions,
+        .map-click-prompt .popup-actions {
             display: flex;
             gap: 8px;
         }
 
-        .route-popup .popup-btn {
+        .route-popup .popup-btn,
+        .map-click-prompt .popup-btn {
             flex: 1;
             padding: 6px 10px;
             border: none;
@@ -731,12 +751,14 @@
             transition: background 0.2s;
         }
 
-        .route-popup .popup-btn.download {
+        .route-popup .popup-btn.download,
+        .map-click-prompt .popup-btn.confirm {
             background: #22c55e;
             color: white;
         }
 
-        .route-popup .popup-btn.download:hover {
+        .route-popup .popup-btn.download:hover,
+        .map-click-prompt .popup-btn.confirm:hover {
             background: #16a34a;
         }
 
@@ -747,6 +769,36 @@
 
         .route-popup .popup-btn.delete:hover {
             background: #dc2626;
+        }
+
+        .map-click-prompt {
+            min-width: 210px;
+            color: #16213e;
+        }
+
+        .map-click-prompt-title {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 6px;
+            color: #16213e;
+            font-size: 0.95rem;
+            font-weight: 700;
+        }
+
+        .map-click-prompt-coords {
+            margin-bottom: 10px;
+            color: #666;
+            font-size: 0.8rem;
+        }
+
+        .map-click-prompt .popup-btn.cancel {
+            background: #e5e7eb;
+            color: #16213e;
+        }
+
+        .map-click-prompt .popup-btn.cancel:hover {
+            background: #d1d5db;
         }
 
         .api-key-section {
@@ -776,76 +828,114 @@
             color: #00d4ff;
         }
 
-        .color-picker {
-            width: 50px;
-            height: 38px;
-            padding: 2px;
-            cursor: pointer;
+        .mode-color-row {
+            align-items: flex-end;
+        }
+
+        .mode-form-group {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .color-form-group {
+            flex: 0 0 auto;
+        }
+
+        .mode-color-row .color-form-group {
+            flex: 0 0 auto;
         }
 
         .color-picker-wrapper {
             position: relative;
-            display: inline-block;
+            display: inline-flex;
         }
 
         .color-swatch {
-            width: 36px;
-            height: 32px;
-            border-radius: 6px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            cursor: pointer;
-            transition: transform 0.1s, border-color 0.1s;
+            width: 42px;
+            min-width: 42px;
+            height: 38px;
+            min-height: 38px;
             padding: 0;
-            min-height: 32px;
+            border: 2px solid rgba(255, 255, 255, 0.36);
+            border-radius: 7px;
+            background: var(--selected-route-color, #ff4757);
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.22);
+            transition: border-color 0.12s, box-shadow 0.12s, transform 0.1s;
         }
 
-        .color-swatch:hover {
-            border-color: rgba(255, 255, 255, 0.6);
-            transform: scale(1.05);
+        .color-swatch:hover,
+        .color-swatch:focus-visible {
+            border-color: rgba(255, 255, 255, 0.85);
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.22), 0 0 0 2px rgba(0, 212, 255, 0.28);
         }
 
         .color-dropdown {
             position: absolute;
-            top: 100%;
-            left: 0;
-            margin-top: 6px;
-            background: #16213e;
-            border: 1px solid #0f3460;
-            border-radius: 8px;
-            padding: 8px;
+            top: auto;
+            right: 0;
+            bottom: 100%;
+            margin-bottom: 6px;
+            z-index: 1200;
             display: none;
-            z-index: 1000;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            padding: 8px;
+            border: 1px solid rgba(0, 212, 255, 0.38);
+            border-radius: 8px;
+            background: #16213e;
+            box-shadow: 0 8px 22px rgba(0, 0, 0, 0.36);
         }
 
         .color-dropdown.visible {
             display: block;
         }
 
-        .color-dropdown-grid {
+        .color-palette {
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 6px;
+            grid-template-columns: repeat(5, 30px);
+            gap: 8px;
+            align-items: center;
+            width: max-content;
         }
 
         .color-option {
-            width: 32px;
-            height: 32px;
+            position: relative;
+            width: 30px;
+            min-width: 30px;
+            height: 30px;
+            min-height: 30px;
+            aspect-ratio: 1;
+            background: var(--route-color);
             border-radius: 50%;
-            border: 2px solid transparent;
+            border: 2px solid rgba(255, 255, 255, 0.28);
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.22);
             cursor: pointer;
-            transition: transform 0.1s, border-color 0.1s;
             padding: 0;
-            min-height: 32px;
+            transition: border-color 0.12s, box-shadow 0.12s, opacity 0.12s, transform 0.1s;
         }
 
-        .color-option:hover {
-            transform: scale(1.15);
+        .color-option:hover,
+        .color-option:focus-visible {
+            border-color: rgba(255, 255, 255, 0.8);
+            opacity: 1;
+            transform: scale(1.05);
         }
 
         .color-option.selected {
-            border-color: white;
-            box-shadow: 0 0 0 2px #00d4ff;
+            border-color: #fff;
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2), 0 0 0 2px #16213e, 0 0 0 4px #00d4ff;
+            opacity: 1;
+        }
+
+        .color-option:not(.selected) {
+            opacity: 0.72;
+        }
+
+        .color-option.selected::after {
+            content: '';
+            position: absolute;
+            inset: 7px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.92);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
         }
 
         .inline-group {
@@ -856,6 +946,15 @@
 
         .inline-group .form-group {
             flex: 1;
+        }
+
+        .inline-group.mode-color-row .mode-form-group {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .inline-group.mode-color-row .color-form-group {
+            flex: 0 0 auto;
         }
 
         .inline-group .form-group.small {
@@ -883,8 +982,87 @@
             color: #1a1a2e;
         }
 
+        .mode-toggle-group {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(36px, 1fr));
+            gap: 6px;
+            width: 100%;
+        }
+
+        .mode-toggle {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 36px;
+            padding: 0;
+            border: 1px solid rgba(169, 182, 211, 0.35);
+            border-radius: 6px;
+            background: rgba(15, 52, 96, 0.7);
+            color: #a9b6d3;
+            opacity: 0.58;
+            transition: background 0.16s, border-color 0.16s, box-shadow 0.16s, color 0.16s, opacity 0.16s, transform 0.1s;
+        }
+
+        .mode-toggle .icon {
+            width: 19px;
+            height: 19px;
+        }
+
+        .mode-toggle:hover,
+        .mode-toggle:focus-visible {
+            background: rgba(0, 212, 255, 0.1);
+            border-color: rgba(0, 212, 255, 0.72);
+            color: #eee;
+            opacity: 0.9;
+        }
+
+        .mode-toggle[aria-checked="true"] {
+            background: #00d4ff;
+            border-color: #00d4ff;
+            box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.22);
+            color: #1a1a2e;
+            opacity: 1;
+        }
+
+        .mode-toggle[aria-checked="true"]:hover,
+        .mode-toggle[aria-checked="true"]:focus-visible {
+            background: #34ddff;
+            color: #1a1a2e;
+        }
+
+        .mode-toggle-label {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 50%;
+            transform: translateX(-50%);
+            visibility: hidden;
+            opacity: 0;
+            z-index: 20;
+            padding: 5px 8px;
+            border: 1px solid #333;
+            border-radius: 5px;
+            background: #1a1a2e;
+            color: #eee;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+            font-size: 0.74rem;
+            font-weight: 600;
+            line-height: 1;
+            white-space: nowrap;
+            pointer-events: none;
+            transition: opacity 0.16s, visibility 0.16s;
+        }
+
+        .mode-toggle:hover .mode-toggle-label,
+        .mode-toggle:focus-visible .mode-toggle-label {
+            visibility: visible;
+            opacity: 1;
+        }
+
         .routes-section {
+            flex: 1 1 auto;
             gap: 8px;
+            min-height: 0;
         }
 
         .routes-toolbar {
@@ -979,6 +1157,15 @@
             color: white;
             border: 2px solid white;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+        }
+
+        .marker-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.78);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+            opacity: 0.72;
         }
 
         /* Route hover highlight */
@@ -1137,7 +1324,7 @@
             padding: 0;
             background: rgba(0, 212, 255, 0.08);
             border: 1px solid rgba(0, 212, 255, 0.35);
-            border-radius: 50%;
+            border-radius: 5px;
             color: #7ddff5;
             font-size: 0.78rem;
             line-height: 1;
@@ -1293,48 +1480,42 @@
 
         /* Import section */
         .import-section {
-            border: 2px dashed #2a3a5c;
-            border-radius: 6px;
-            padding: 10px 12px;
-            text-align: left;
-            transition: border-color 0.2s, background 0.2s;
-            cursor: pointer;
-            display: grid;
-            grid-template-columns: 30px minmax(0, 1fr);
+            position: relative;
+            display: inline-flex;
             align-items: center;
-            column-gap: 10px;
-            width: 100%;
+            justify-content: center;
+            width: 36px;
+            min-width: 36px;
+            height: 36px;
+            min-height: 36px;
+            padding: 0;
+            background: rgba(0, 212, 255, 0.08);
+            border: 1px solid rgba(0, 212, 255, 0.35);
+            border-radius: 50%;
+            color: #7ddff5;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s, color 0.2s, transform 0.1s;
         }
 
         .import-section:hover,
         .import-section.drag-over {
             border-color: #00d4ff;
-            background: rgba(0, 212, 255, 0.05);
-        }
-
-        .import-section p {
-            font-size: 0.8rem;
-            color: #b7c3dc;
-            margin: 2px 0 0;
-            line-height: 1.25;
-        }
-
-        .import-section p:first-of-type {
-            margin-top: 0;
-        }
-
-        .import-section .import-icon {
-            margin-bottom: 0;
-            grid-row: 1 / span 3;
+            background: rgba(0, 212, 255, 0.16);
             color: #00d4ff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
         }
 
-        .import-section .import-icon .icon {
-            width: 22px;
-            height: 22px;
+        .import-section:focus {
+            outline: 3px solid #00d4ff;
+            outline-offset: 2px;
+        }
+
+        .import-section:active {
+            transform: scale(0.98);
+        }
+
+        .import-section .icon {
+            width: 18px;
+            height: 18px;
         }
 
         .import-section>* {
@@ -1354,10 +1535,21 @@
         }
 
         /* Fog of World section */
+        .fog-section {
+            background: rgba(167, 139, 250, 0.1);
+            border-color: rgba(167, 139, 250, 0.35);
+            color: #c4b5fd;
+        }
+
         .fog-section:hover,
         .fog-section.drag-over {
             border-color: #a78bfa;
-            background: rgba(167, 139, 250, 0.05);
+            background: rgba(167, 139, 250, 0.18);
+            color: #d8b4fe;
+        }
+
+        .fog-section:focus {
+            outline-color: #a78bfa;
         }
 
         .fog-badge {
@@ -1454,6 +1646,7 @@
         /* Responsive improvements */
         @media (max-width: 768px) {
             body {
+                height: 100dvh;
                 min-height: 100dvh;
             }
 
@@ -1463,6 +1656,8 @@
 
             .sidebar {
                 width: 100%;
+                flex: 0 0 auto;
+                height: auto;
                 max-height: 52dvh;
                 order: 1;
                 padding: 14px;
@@ -1478,6 +1673,13 @@
                 min-width: 44px;
                 min-height: 44px;
                 width: 44px;
+            }
+
+            .map-controls .import-section {
+                width: 44px;
+                min-width: 44px;
+                height: 44px;
+                min-height: 44px;
             }
 
             .input-with-btn input {
@@ -1504,16 +1706,29 @@
                 flex: none;
             }
 
-            /* Improve color picker for touch */
-            .color-dropdown-grid {
-                grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
+            .mode-color-row {
+                flex-direction: row;
+                align-items: flex-end;
+            }
+
+            .mode-color-row .mode-form-group {
+                flex: 1 1 auto;
+            }
+
+            .mode-color-row .color-form-group {
+                flex: 0 0 auto;
+            }
+
+            .color-palette {
+                grid-template-columns: repeat(5, 34px);
                 gap: 10px;
-                padding: 4px;
             }
 
             .color-option {
-                width: 40px;
-                height: 40px;
+                width: 34px;
+                min-width: 34px;
+                height: 34px;
+                min-height: 34px;
             }
 
             /* Stack waypoint buttons on small screens */
@@ -1568,6 +1783,17 @@
                     </button>
                 </div>
                 <p class="subtitle">Convert routes to GPX files for GPS devices</p>
+                <div id="fogBadge" class="fog-badge" style="display: none;">
+                    <label class="fog-badge-label">
+                        <input type="checkbox" id="fogVisibilityToggle" checked />
+                        <span class="ui-icon" data-icon="cloud-fog" data-icon-class="icon-sm" aria-hidden="true"></span>
+                        Fog of World layer
+                    </label>
+                    <button type="button" id="fogRemoveBtn" class="btn-small btn-secondary"
+                        aria-label="Remove Fog of World layer"><span class="icon-label"><span class="ui-icon"
+                                data-icon="x" data-icon-class="icon-sm" aria-hidden="true"></span>
+                            Remove</span></button>
+                </div>
             </header>
 
             <div id="helpContent" class="help-content" role="region" aria-labelledby="help-heading">
@@ -1639,6 +1865,11 @@
                                     aria-label="Pick origin on the map" title="Pick origin on the map">
                                     <span class="ui-icon" data-icon="crosshair" aria-hidden="true"></span>
                                 </button>
+                                <button type="button" class="btn-icon btn-outline endpoint-move-btn"
+                                    data-action="move-origin-down" aria-label="Move origin after next route point"
+                                    title="Move origin after next route point">
+                                    <span class="ui-icon" data-icon="chevron-down" aria-hidden="true"></span>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1671,6 +1902,12 @@
                                     data-map-pick-flow="single" aria-pressed="false"
                                     aria-label="Pick destination on the map" title="Pick destination on the map">
                                     <span class="ui-icon" data-icon="crosshair" aria-hidden="true"></span>
+                                </button>
+                                <button type="button" class="btn-icon btn-outline endpoint-move-btn"
+                                    data-action="move-destination-up"
+                                    aria-label="Move destination before previous route point"
+                                    title="Move destination before previous route point">
+                                    <span class="ui-icon" data-icon="chevron-up" aria-hidden="true"></span>
                                 </button>
                             </div>
                         </div>
@@ -1713,24 +1950,44 @@
                     </div>
                 </div>
 
-                <div class="inline-group">
-                    <div class="form-group" style="flex: 1;">
-                        <label for="travelMode">Mode</label>
-                        <select id="travelMode" title="Transportation method">
-                            <option value="DRIVE">Drive</option>
-                            <option value="BICYCLE">Bicycle</option>
-                            <option value="WALK">Walk</option>
-                            <option value="TRANSIT">Transit</option>
-                        </select>
+                <div class="inline-group mode-color-row">
+                    <div class="form-group mode-form-group">
+                        <span class="field-label" id="travelModeLabel">Mode</span>
+                        <input type="hidden" id="travelMode" value="DRIVE">
+                        <div class="mode-toggle-group" role="radiogroup" aria-labelledby="travelModeLabel">
+                            <button type="button" class="mode-toggle" role="radio" aria-checked="true" tabindex="0"
+                                data-travel-mode="DRIVE" aria-label="Drive" title="Drive">
+                                <span class="ui-icon" data-icon="car-front" aria-hidden="true"></span>
+                                <span class="mode-toggle-label" aria-hidden="true">Drive</span>
+                            </button>
+                            <button type="button" class="mode-toggle" role="radio" aria-checked="false" tabindex="-1"
+                                data-travel-mode="BICYCLE" aria-label="Bicycle" title="Bicycle">
+                                <span class="ui-icon" data-icon="bike" aria-hidden="true"></span>
+                                <span class="mode-toggle-label" aria-hidden="true">Bicycle</span>
+                            </button>
+                            <button type="button" class="mode-toggle" role="radio" aria-checked="false" tabindex="-1"
+                                data-travel-mode="WALK" aria-label="Walk" title="Walk">
+                                <span class="ui-icon" data-icon="footprints" aria-hidden="true"></span>
+                                <span class="mode-toggle-label" aria-hidden="true">Walk</span>
+                            </button>
+                            <button type="button" class="mode-toggle" role="radio" aria-checked="false" tabindex="-1"
+                                data-travel-mode="TRANSIT" aria-label="Transit" title="Transit">
+                                <span class="ui-icon" data-icon="bus-front" aria-hidden="true"></span>
+                                <span class="mode-toggle-label" aria-hidden="true">Transit</span>
+                            </button>
+                        </div>
                     </div>
-                    <div class="form-group" style="flex: 0 0 auto;">
-                        <label>Color</label>
+
+                    <div class="form-group color-form-group">
+                        <span class="field-label" id="routeColorLabel">Color</span>
                         <div class="color-picker-wrapper">
-                            <button type="button" id="colorSwatch" class="color-swatch" aria-label="Select route color"
-                                aria-haspopup="true" aria-expanded="false" title="Click to choose color"></button>
+                            <button type="button" id="colorSwatch" class="color-swatch" aria-label="Choose route color"
+                                aria-haspopup="dialog" aria-expanded="false" aria-controls="colorDropdown"
+                                title="Choose route color"></button>
                             <input type="hidden" id="routeColor" value="#ff4757" />
-                            <div class="color-dropdown" id="colorDropdown" role="listbox" aria-label="Color options">
-                                <div class="color-dropdown-grid" id="colorOptions"></div>
+                            <div class="color-dropdown" id="colorDropdown" aria-hidden="true">
+                                <div class="color-palette" id="colorOptions" role="radiogroup"
+                                    aria-labelledby="routeColorLabel"></div>
                             </div>
                         </div>
                     </div>
@@ -1741,45 +1998,6 @@
                 </button>
 
                 <div id="status" class="status" role="status" aria-live="polite" style="display: none;"></div>
-            </section>
-
-            <hr />
-
-            <section aria-labelledby="import-heading">
-                <h2 id="import-heading" class="sr-only">Import GPS Files</h2>
-                <input type="file" id="importFileInput" class="file-input-hidden"
-                    accept=".gpx,.kml,.fit,.tcx,.geojson,.json,.gz" multiple tabindex="-1" />
-                <label class="import-section" id="importDropZone" for="importFileInput" tabindex="0"
-                    aria-label="Import GPS files. Supports GPX, KML, FIT, TCX, GeoJSON, and gzipped variants. Click to browse or drag and drop.">
-                    <div class="import-icon"><span class="ui-icon" data-icon="folder-up" data-icon-class="icon-lg"
-                            aria-hidden="true"></span></div>
-                    <p><strong>Import GPS Files</strong></p>
-                    <p>GPX · KML · FIT · TCX · GeoJSON (+ .gz)</p>
-                    <p>Drag & drop or click to browse</p>
-                </label>
-            </section>
-
-            <section aria-labelledby="fog-heading">
-                <h2 id="fog-heading" class="sr-only">Fog of World</h2>
-                <input type="file" id="fogFileInput" class="file-input-hidden" accept=".zip" tabindex="-1" />
-                <label class="import-section fog-section" id="fogDropZone" for="fogFileInput" tabindex="0"
-                    aria-label="Import Fog of World data. Click to browse or drag and drop a ZIP file.">
-                    <div class="import-icon"><span class="ui-icon" data-icon="cloud-fog" data-icon-class="icon-lg"
-                            aria-hidden="true"></span></div>
-                    <p><strong>Fog of World</strong></p>
-                    <p>Drag & drop or click to browse</p>
-                </label>
-                <div id="fogBadge" class="fog-badge" style="display: none;">
-                    <label class="fog-badge-label">
-                        <input type="checkbox" id="fogVisibilityToggle" checked />
-                        <span class="ui-icon" data-icon="cloud-fog" data-icon-class="icon-sm" aria-hidden="true"></span>
-                        Fog of World layer
-                    </label>
-                    <button type="button" id="fogRemoveBtn" class="btn-small btn-secondary"
-                        aria-label="Remove Fog of World layer"><span class="icon-label"><span class="ui-icon"
-                                data-icon="x" data-icon-class="icon-sm" aria-hidden="true"></span>
-                            Remove</span></button>
-                </div>
             </section>
 
             <hr />
@@ -1827,6 +2045,19 @@
             </div>
 
             <div class="map-controls">
+                <input type="file" id="importFileInput" class="file-input-hidden"
+                    accept=".gpx,.kml,.fit,.tcx,.geojson,.json,.gz" multiple tabindex="-1" />
+                <label class="import-section" id="importDropZone" for="importFileInput" tabindex="0" role="button"
+                    aria-label="Import GPS files. Supports GPX, KML, FIT, TCX, GeoJSON, and gzipped variants. Click to browse or drag and drop."
+                    title="Import GPS files">
+                    <span class="ui-icon" data-icon="folder-up" aria-hidden="true"></span>
+                </label>
+                <input type="file" id="fogFileInput" class="file-input-hidden" accept=".zip" tabindex="-1" />
+                <label class="import-section fog-section" id="fogDropZone" for="fogFileInput" tabindex="0" role="button"
+                    aria-label="Import Fog of World data. Click to browse or drag and drop a ZIP file."
+                    title="Import Fog of World ZIP">
+                    <span class="ui-icon" data-icon="cloud-fog" aria-hidden="true"></span>
+                </label>
                 <button type="button" id="apiKeyMapBtn" class="btn-icon api-key-btn" aria-label="API Key settings"
                     title="Google Routes API Key - Click to configure">
                     <span class="ui-icon" data-icon="key-round" aria-hidden="true"></span>
@@ -1882,12 +2113,12 @@
             </div>
 
             <label class="checkbox-row" for="rememberApiKey">
-                <input type="checkbox" id="rememberApiKey" checked />
-                Remember this key on this browser. Turn this off to keep it only until this tab closes.
+                <input type="checkbox" id="rememberApiKey" />
+                Remember this key on this browser. Leave unchecked to keep it only until this tab closes.
             </label>
 
             <div class="filename-preview" id="apiKeyStorageHint">
-                Stored locally only; never sent anywhere except Google Routes API requests.
+                Stored only in this tab and cleared when the tab closes.
             </div>
 
             <div class="btn-row">

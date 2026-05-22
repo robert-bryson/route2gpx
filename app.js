@@ -7,7 +7,11 @@ let previewMarkers = [];
 let activeModal = null;
 let activeModalReturnFocus = null;
 let statusTimer = null;
+let pendingMapClickPrompt = null;
+let activeRoutePopup = null;
+let suppressNextMapClickForPopup = false;
 let storageWarningShown = false;
+let geolocationRequestId = 0;
 
 const API_KEY_STORAGE_KEY = 'route2gpx_apiKey';
 const API_KEY_MEMORY_KEY = 'route2gpx_apiKey_session';
@@ -18,6 +22,12 @@ const ELEVATION_REQUEST_TIMEOUT_MS = 20000;
 const REVERSE_GEOCODE_REQUEST_TIMEOUT_MS = 8000;
 const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_DECOMPRESSED_IMPORT_BYTES = 120 * 1024 * 1024;
+const ROUTE_LINE_WEIGHT = 4;
+const ROUTE_LINE_OPACITY = 0.8;
+const OLDER_ROUTE_LINE_OPACITY = 0.56;
+const HIGHLIGHT_ROUTE_LINE_WEIGHT = 7;
+const HIGHLIGHT_ROUTE_LINE_OPACITY = 1;
+const OLDER_ROUTE_ENDPOINT_DOT_SIZE = 8;
 
 const CLICK_MODE_COPY = {
     origin: {
@@ -61,6 +71,18 @@ const COLOR_PALETTE = [
     '#26de81', // Mint
     '#fc5c65', // Coral
 ];
+const COLOR_PALETTE_LABELS = Object.freeze([
+    'Red',
+    'Green',
+    'Blue',
+    'Orange',
+    'Purple',
+    'Pink',
+    'Cyan',
+    'Yellow',
+    'Mint',
+    'Coral'
+]);
 let selectedColorIndex = -1; // Will be set by selectRandomColor
 let availableColorIndices = []; // Pool of unused color indices for random selection
 
@@ -244,6 +266,7 @@ function formatFileSize(bytes) {
 function bindRoutePopup(polylineLayer, route) {
     const popup = L.popup({ closeButton: true, className: 'route-popup-container' })
         .setContent(() => createRoutePopup(route));
+    popup.route2gpxPopupType = 'route';
 
     polylineLayer.bindPopup(popup);
 
@@ -253,6 +276,23 @@ function bindRoutePopup(polylineLayer, route) {
         L.DomEvent.preventDefault(e);
         this.openPopup(e.latlng);
     });
+}
+
+function scrollRouteItemIntoViewIfNeeded(routeItem) {
+    const list = document.getElementById('routesList');
+    if (!list || !routeItem || !list.contains(routeItem) || list.clientHeight === 0) return;
+
+    const listRect = list.getBoundingClientRect();
+    const itemRect = routeItem.getBoundingClientRect();
+    const scrollPadding = 6;
+
+    if (itemRect.top >= listRect.top && itemRect.bottom <= listRect.bottom) return;
+
+    if (itemRect.top < listRect.top) {
+        list.scrollTop += itemRect.top - listRect.top - scrollPadding;
+    } else if (itemRect.bottom > listRect.bottom) {
+        list.scrollTop += itemRect.bottom - listRect.bottom + scrollPadding;
+    }
 }
 
 function bindRouteHoverEffects(route) {
@@ -280,17 +320,20 @@ function bindRouteHoverEffects(route) {
 
     // Hover highlight function
     const highlightRoute = () => {
-        polylineLayer.setStyle({ weight: 7, opacity: 1 });
+        polylineLayer.setStyle({ weight: HIGHLIGHT_ROUTE_LINE_WEIGHT, opacity: HIGHLIGHT_ROUTE_LINE_OPACITY });
         markers.forEach(m => {
             if (m._icon) m._icon.classList.add('marker-highlighted');
         });
         // Highlight sidebar item
         const sidebarItem = document.querySelector(`[data-route-id="${route.id}"]`);
-        if (sidebarItem) sidebarItem.classList.add('highlighted');
+        if (sidebarItem) {
+            sidebarItem.classList.add('highlighted');
+            scrollRouteItemIntoViewIfNeeded(sidebarItem);
+        }
     };
 
     const unhighlightRoute = () => {
-        polylineLayer.setStyle({ weight: 4, opacity: 0.8 });
+        applyRouteMapStyle(route);
         markers.forEach(m => {
             if (m._icon) m._icon.classList.remove('marker-highlighted');
         });
@@ -342,8 +385,8 @@ function restoreRoute(data) {
     data.elevationStatus = data.elevations && data.elevations.some(elevation => elevation !== null) ? 'ready' : null;
     const polylineLayer = L.polyline(data.coordinates, {
         color: data.color,
-        weight: 4,
-        opacity: 0.8
+        weight: ROUTE_LINE_WEIGHT,
+        opacity: ROUTE_LINE_OPACITY
     }).addTo(map);
 
     const markers = createRouteMarkers(data.coordinates, data.color);
@@ -363,11 +406,50 @@ function restoreRoute(data) {
     // Bind popup after route is in array
     bindRoutePopup(polylineLayer, route);
     bindRouteHoverEffects(route);
+    updateRouteMapStyles();
 
     renderRoutesList();
 }
 
 // ============ Custom Markers ============
+function isNewestRoute(route) {
+    return routes[routes.length - 1] === route;
+}
+
+function getRouteLineStyle(route) {
+    return {
+        weight: ROUTE_LINE_WEIGHT,
+        opacity: isNewestRoute(route) ? ROUTE_LINE_OPACITY : OLDER_ROUTE_LINE_OPACITY
+    };
+}
+
+function createEndpointDotIcon(color) {
+    const safeColor = VALID_COLOR_RE.test(color) ? color : '#4285F4';
+    const dotSize = OLDER_ROUTE_ENDPOINT_DOT_SIZE;
+    return L.divIcon({
+        html: `<div class="marker-dot" style="background: ${safeColor}"></div>`,
+        className: 'custom-marker endpoint-dot-marker',
+        iconSize: [dotSize, dotSize],
+        iconAnchor: [dotSize / 2, dotSize / 2]
+    });
+}
+
+function createEndpointMarkerIcon(type, color, isNewest) {
+    return isNewest ? createMarkerIcon(type, color) : createEndpointDotIcon(color);
+}
+
+function applyRouteMapStyle(route) {
+    route.polylineLayer.setStyle(getRouteLineStyle(route));
+    route.markers.forEach((marker, index) => {
+        if (typeof marker.setIcon !== 'function') return;
+        marker.setIcon(createEndpointMarkerIcon(index === 0 ? 'start' : 'end', route.color, isNewestRoute(route)));
+    });
+}
+
+function updateRouteMapStyles() {
+    routes.forEach(applyRouteMapStyle);
+}
+
 function createMarkerIcon(type, color, number = null) {
     const safeColor = VALID_COLOR_RE.test(color) ? color : '#4285F4';
     let html = '';
@@ -545,18 +627,91 @@ function exitClickMode() {
 
 function setMapPickValue(target, latLng) {
     if (target === 'origin') {
-        document.getElementById('origin').value = latLng;
+        const input = document.getElementById('origin');
+        input.value = latLng;
+        updateInputValidation(input);
     } else if (target === 'destination') {
-        document.getElementById('destination').value = latLng;
+        const input = document.getElementById('destination');
+        input.value = latLng;
+        updateInputValidation(input);
     } else if (target === 'waypoint') {
         addStop(latLng);
     }
 }
 
-map.on('click', function (e) {
-    if (!clickMode) return;
+function formatLeafletLatLng(latlng) {
+    return `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
+}
 
-    const latLng = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+function getPassiveMapPickTarget() {
+    const origin = document.getElementById('origin').value.trim();
+    const destination = document.getElementById('destination').value.trim();
+    if (!origin) return 'origin';
+    if (!destination) return 'destination';
+    return null;
+}
+
+function createMapClickPrompt(target, latLng) {
+    const label = target === 'origin' ? 'origin' : 'destination';
+    const labelTitle = target === 'origin' ? 'Origin' : 'Destination';
+
+    return `
+        <div class="map-click-prompt">
+            <div class="map-click-prompt-title">${iconSvg('map-pin', 'icon-sm')} Use this spot as ${label}?</div>
+            <div class="map-click-prompt-coords">${escapeHtml(latLng)}</div>
+            <div class="popup-actions">
+                <button type="button" class="popup-btn confirm" data-action="confirm-map-click-prompt">
+                    ${iconSvg('plus', 'icon-sm')} Set ${labelTitle}
+                </button>
+                <button type="button" class="popup-btn cancel" data-action="cancel-map-click-prompt">
+                    ${iconSvg('x', 'icon-sm')} Cancel
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function openMapClickPrompt(target, leafletLatLng) {
+    const latLng = formatLeafletLatLng(leafletLatLng);
+    const popup = L.popup({ closeButton: true, className: 'map-click-prompt-container' })
+        .setLatLng(leafletLatLng)
+        .setContent(createMapClickPrompt(target, latLng))
+        .openOn(map);
+    popup.route2gpxPopupType = 'map-click-prompt';
+
+    pendingMapClickPrompt = { target, latLng, popup };
+}
+
+function confirmMapClickPrompt() {
+    if (!pendingMapClickPrompt) return;
+
+    const { target, latLng } = pendingMapClickPrompt;
+    pendingMapClickPrompt = null;
+    setMapPickValue(target, latLng);
+    updatePreviewMarkers();
+    map.closePopup();
+    showStatus(CLICK_MODE_COPY[target]?.status || 'Point set from map');
+}
+
+function cancelMapClickPrompt() {
+    pendingMapClickPrompt = null;
+    map.closePopup();
+}
+
+map.on('click', function (e) {
+    if (suppressNextMapClickForPopup) {
+        suppressNextMapClickForPopup = false;
+        map.closePopup();
+        return;
+    }
+
+    if (!clickMode) {
+        const target = getPassiveMapPickTarget();
+        if (target) openMapClickPrompt(target, e.latlng);
+        return;
+    }
+
+    const latLng = formatLeafletLatLng(e.latlng);
     const target = clickMode;
     const flow = clickModeFlow;
 
@@ -570,6 +725,29 @@ map.on('click', function (e) {
     } else {
         exitClickMode();
         showStatus(CLICK_MODE_COPY[target]?.status || 'Point set from map');
+    }
+});
+
+map.on('preclick', function () {
+    if (!activeRoutePopup) return;
+    suppressNextMapClickForPopup = true;
+    map.closePopup(activeRoutePopup);
+});
+
+map.on('popupopen', function (event) {
+    if (event?.popup?.route2gpxPopupType === 'route') {
+        activeRoutePopup = event.popup;
+    }
+});
+
+map.on('popupclose', function (event) {
+    if (!event?.popup || event.popup === activeRoutePopup) {
+        activeRoutePopup = null;
+    }
+
+    if (!pendingMapClickPrompt) return;
+    if (!event?.popup || event.popup === pendingMapClickPrompt.popup) {
+        pendingMapClickPrompt = null;
     }
 });
 
@@ -652,15 +830,27 @@ document.addEventListener('keydown', handleModalKeydown, true);
 
 // ============ API Key Modal ============
 function getApiKey() {
+    return getStorageItem(sessionStorage, API_KEY_MEMORY_KEY) || getStorageItem(localStorage, API_KEY_STORAGE_KEY);
+}
+
+function isApiKeyRemembered() {
+    return Boolean(getStorageItem(localStorage, API_KEY_STORAGE_KEY));
+}
+
+function getStorageItem(storage, key) {
     try {
-        return sessionStorage.getItem(API_KEY_MEMORY_KEY) || localStorage.getItem(API_KEY_STORAGE_KEY) || '';
+        return storage.getItem(key) || '';
     } catch {
         return '';
     }
 }
 
-function isApiKeyRemembered() {
-    try { return Boolean(localStorage.getItem(API_KEY_STORAGE_KEY)); } catch { return false; }
+function removeStorageItem(storage, key) {
+    try {
+        storage.removeItem(key);
+    } catch {
+        // Best effort cleanup only.
+    }
 }
 
 function updateApiKeyStatus() {
@@ -691,7 +881,7 @@ function openApiKeyModal() {
     const input = document.getElementById('apiKeyInput');
     const rememberInput = document.getElementById('rememberApiKey');
     input.value = getApiKey();
-    if (rememberInput) rememberInput.checked = isApiKeyRemembered() || !getApiKey();
+    if (rememberInput) rememberInput.checked = isApiKeyRemembered();
     updateApiKeyStorageHint();
     openModal(modal, input);
 }
@@ -716,14 +906,37 @@ function saveApiKey() {
     const key = input.value.trim();
 
     if (key) {
-        if (rememberInput && rememberInput.checked) {
-            localStorage.setItem(API_KEY_STORAGE_KEY, key);
-            sessionStorage.removeItem(API_KEY_MEMORY_KEY);
-            showStatus('API key saved on this browser');
-        } else {
-            sessionStorage.setItem(API_KEY_MEMORY_KEY, key);
-            localStorage.removeItem(API_KEY_STORAGE_KEY);
-            showStatus('API key saved for this tab');
+        try {
+            if (rememberInput && rememberInput.checked) {
+                localStorage.setItem(API_KEY_STORAGE_KEY, key);
+                removeStorageItem(sessionStorage, API_KEY_MEMORY_KEY);
+                showStatus('API key saved on this browser');
+            } else {
+                sessionStorage.setItem(API_KEY_MEMORY_KEY, key);
+                removeStorageItem(localStorage, API_KEY_STORAGE_KEY);
+                showStatus('API key saved for this tab');
+            }
+        } catch (error) {
+            if (!(rememberInput && rememberInput.checked)) {
+                console.error('Failed to save API key:', error.message);
+                showStatus('API key could not be saved in this browser.', true);
+                input.focus();
+                return;
+            }
+
+            console.warn('Persistent API key storage unavailable; falling back to session storage:', error.message);
+            try {
+                sessionStorage.setItem(API_KEY_MEMORY_KEY, key);
+                removeStorageItem(localStorage, API_KEY_STORAGE_KEY);
+                if (rememberInput) rememberInput.checked = false;
+                updateApiKeyStorageHint();
+                showStatus('API key saved for this tab because browser storage is unavailable');
+            } catch (fallbackError) {
+                console.error('Failed to save API key:', fallbackError.message);
+                showStatus('API key could not be saved in this browser.', true);
+                input.focus();
+                return;
+            }
         }
         updateApiKeyStatus();
         closeApiKeyModal();
@@ -734,8 +947,8 @@ function saveApiKey() {
 }
 
 function clearApiKey() {
-    localStorage.removeItem(API_KEY_STORAGE_KEY);
-    sessionStorage.removeItem(API_KEY_MEMORY_KEY);
+    removeStorageItem(localStorage, API_KEY_STORAGE_KEY);
+    removeStorageItem(sessionStorage, API_KEY_MEMORY_KEY);
     updateApiKeyStatus();
     openApiKeyModal();
 }
@@ -763,14 +976,17 @@ function locateMe() {
         return;
     }
 
+    const requestId = ++geolocationRequestId;
     showStatus('Getting your location...');
     navigator.geolocation.getCurrentPosition(
         (position) => {
+            if (requestId !== geolocationRequestId) return;
             const { latitude, longitude } = position.coords;
             map.setView([latitude, longitude], 14);
             showStatus('Centered on your location');
         },
         (error) => {
+            if (requestId !== geolocationRequestId) return;
             showStatus('Unable to get your location: ' + error.message, true);
         },
         { enableHighAccuracy: true, timeout: 10000 }
@@ -783,16 +999,21 @@ function useMyLocation(field) {
         return;
     }
 
+    const requestId = ++geolocationRequestId;
     showStatus('Getting your location...');
     navigator.geolocation.getCurrentPosition(
         (position) => {
+            if (requestId !== geolocationRequestId) return;
             const { latitude, longitude } = position.coords;
             const latLng = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
-            document.getElementById(field).value = latLng;
+            const input = document.getElementById(field);
+            input.value = latLng;
+            updateInputValidation(input);
             updatePreviewMarkers();
             showStatus('Location set');
         },
         (error) => {
+            if (requestId !== geolocationRequestId) return;
             showStatus('Unable to get your location: ' + error.message, true);
         },
         { enableHighAccuracy: true, timeout: 10000 }
@@ -804,26 +1025,44 @@ function decodePolyline(encoded) {
     const points = [];
     let index = 0, lat = 0, lng = 0;
 
-    while (index < encoded.length) {
-        let shift = 0, result = 0, byte;
-        do {
-            byte = encoded.charCodeAt(index++) - 63;
-            result |= (byte & 0x1f) << shift;
-            shift += 5;
-        } while (byte >= 0x20);
-        lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+    if (typeof encoded !== 'string' || encoded.length === 0) return points;
 
-        shift = 0;
-        result = 0;
-        do {
-            byte = encoded.charCodeAt(index++) - 63;
-            result |= (byte & 0x1f) << shift;
-            shift += 5;
-        } while (byte >= 0x20);
-        lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+    function decodeValue() {
+        let shift = 0, result = 0;
 
-        points.push([lat / 1e5, lng / 1e5]);
+        while (true) {
+            if (index >= encoded.length) {
+                throw new Error('Encoded polyline ended unexpectedly');
+            }
+
+            const byte = encoded.charCodeAt(index++) - 63;
+            if (!Number.isFinite(byte) || byte < 0) {
+                throw new Error('Encoded polyline contains an invalid character');
+            }
+
+            result |= (byte & 0x1f) << shift;
+            if (byte < 0x20) break;
+
+            shift += 5;
+            if (shift > 30) {
+                throw new Error('Encoded polyline value is too large');
+            }
+        }
+
+        return (result & 1) ? ~(result >> 1) : (result >> 1);
     }
+
+    try {
+        while (index < encoded.length) {
+            lat += decodeValue();
+            lng += decodeValue();
+            points.push([lat / 1e5, lng / 1e5]);
+        }
+    } catch (error) {
+        console.warn('Invalid encoded polyline:', error.message);
+        return [];
+    }
+
     return points;
 }
 
@@ -914,6 +1153,37 @@ function getStops() {
         .filter(val => val !== '');
 }
 
+function replaceStops(stops) {
+    const container = document.getElementById('stopsContainer');
+    container.innerHTML = '';
+    stops.forEach(stop => addStop(stop));
+    renumberStops();
+}
+
+function updateEndpointValidation() {
+    updateInputValidation(document.getElementById('origin'));
+    updateInputValidation(document.getElementById('destination'));
+}
+
+function moveEndpoint(endpoint, direction) {
+    const originInput = document.getElementById('origin');
+    const destInput = document.getElementById('destination');
+    const routePoints = [originInput.value.trim(), ...getStops(), destInput.value.trim()];
+    const endpointIndex = endpoint === 'origin' ? 0 : routePoints.length - 1;
+    const targetIndex = endpointIndex + direction;
+
+    if (targetIndex < 0 || targetIndex >= routePoints.length) return;
+
+    [routePoints[endpointIndex], routePoints[targetIndex]] = [routePoints[targetIndex], routePoints[endpointIndex]];
+    originInput.value = routePoints[0];
+    destInput.value = routePoints[routePoints.length - 1];
+    replaceStops(routePoints.slice(1, -1).filter(Boolean));
+
+    updateEndpointValidation();
+    updatePreviewMarkers();
+    showStatus(`${endpoint === 'origin' ? 'Origin' : 'Destination'} moved`);
+}
+
 function reverseRoute() {
     const originInput = document.getElementById('origin');
     const destInput = document.getElementById('destination');
@@ -927,10 +1197,9 @@ function reverseRoute() {
     const stops = getStops();
     stops.reverse();
 
-    const container = document.getElementById('stopsContainer');
-    container.innerHTML = '';
-    stops.forEach(stop => addStop(stop));
+    replaceStops(stops);
 
+    updateEndpointValidation();
     updatePreviewMarkers();
     showStatus('Route reversed');
 }
@@ -1044,6 +1313,79 @@ function buildRouteName(originLabel, destinationLabel) {
     return `${truncate(originLabel, 20)} → ${truncate(destinationLabel, 20)}`;
 }
 
+function getTravelModeButtons() {
+    return Array.from(document.querySelectorAll('[data-travel-mode]'));
+}
+
+function selectTravelMode(mode, emitChange = true) {
+    const input = document.getElementById('travelMode');
+    const buttons = getTravelModeButtons();
+    const selectedButton = buttons.find(button => button.dataset.travelMode === mode) || buttons[0];
+    const selectedMode = selectedButton?.dataset.travelMode || mode;
+
+    if (input && selectedMode) {
+        input.value = selectedMode;
+        if (emitChange) input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    buttons.forEach(button => {
+        const isSelected = button === selectedButton;
+        button.setAttribute('aria-checked', String(isSelected));
+        button.tabIndex = isSelected ? 0 : -1;
+    });
+}
+
+function moveTravelModeSelection(currentButton, direction) {
+    const buttons = getTravelModeButtons();
+    if (!buttons.length) return;
+
+    const currentIndex = Math.max(0, buttons.indexOf(currentButton));
+    const nextIndex = (currentIndex + direction + buttons.length) % buttons.length;
+    const nextButton = buttons[nextIndex];
+    selectTravelMode(nextButton.dataset.travelMode);
+    nextButton.focus();
+}
+
+function handleTravelModeKeydown(event) {
+    const button = event.target.closest('[data-travel-mode]');
+    if (!button) return;
+
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        moveTravelModeSelection(button, 1);
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        moveTravelModeSelection(button, -1);
+    } else if (event.key === 'Home') {
+        event.preventDefault();
+        const firstButton = getTravelModeButtons()[0];
+        selectTravelMode(firstButton.dataset.travelMode);
+        firstButton.focus();
+    } else if (event.key === 'End') {
+        event.preventDefault();
+        const buttons = getTravelModeButtons();
+        const lastButton = buttons[buttons.length - 1];
+        selectTravelMode(lastButton.dataset.travelMode);
+        lastButton.focus();
+    } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        selectTravelMode(button.dataset.travelMode);
+    }
+}
+
+function setupTravelModeToggle() {
+    const buttons = getTravelModeButtons();
+    const input = document.getElementById('travelMode');
+    if (!buttons.length || !input) return;
+
+    buttons.forEach(button => {
+        button.addEventListener('click', () => selectTravelMode(button.dataset.travelMode));
+    });
+
+    buttons[0].closest('[role="radiogroup"]')?.addEventListener('keydown', handleTravelModeKeydown);
+    selectTravelMode(input.value || buttons[0].dataset.travelMode, false);
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = ROUTE_REQUEST_TIMEOUT_MS) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -1149,6 +1491,9 @@ async function getRoute() {
 
         const encodedPolyline = data.routes[0].polyline.encodedPolyline;
         const coordinates = decodePolyline(encodedPolyline);
+        if (coordinates.length < 2) {
+            throw new Error('Route geometry was missing or invalid. Please try again.');
+        }
         const distance = data.routes[0].distanceMeters;
         const duration = data.routes[0].duration;
 
@@ -1160,8 +1505,8 @@ async function getRoute() {
         // Create polyline
         const polylineLayer = L.polyline(coordinates, {
             color: color,
-            weight: 4,
-            opacity: 0.8
+            weight: ROUTE_LINE_WEIGHT,
+            opacity: ROUTE_LINE_OPACITY
         }).addTo(map);
 
         // Create markers
@@ -1188,6 +1533,7 @@ async function getRoute() {
             elevationStatus: 'loading'
         };
         routes.push(route);
+        updateRouteMapStyles();
 
         // Bind popup for click/right-click
         bindRoutePopup(polylineLayer, route);
@@ -1391,6 +1737,7 @@ function removeRoute(id) {
         map.removeLayer(routes[index].polylineLayer);
         routes[index].markers.forEach(m => map.removeLayer(m));
         routes.splice(index, 1);
+        updateRouteMapStyles();
         renderRoutesList();
         updateBulkButtons();
         saveToStorage();
@@ -1614,9 +1961,10 @@ async function fetchElevations(coordinates) {
             if (!response.ok) throw new Error(`Elevation API error: ${response.status}`);
 
             const data = await response.json();
-            if (data.status === 'OK' && data.results) {
+            if (data.status === 'OK' && Array.isArray(data.results)) {
                 data.results.forEach((result, idx) => {
-                    elevations[i + idx] = result.elevation ?? null;
+                    if (idx >= batch.length) return;
+                    elevations[i + idx] = Number.isFinite(result?.elevation) ? result.elevation : null;
                 });
             }
         } catch (e) {
@@ -1893,8 +2241,8 @@ function addImportedRoute(name, coordinates, elevations) {
 
     const polylineLayer = L.polyline(coordinates, {
         color: color,
-        weight: 4,
-        opacity: 0.8
+        weight: ROUTE_LINE_WEIGHT,
+        opacity: ROUTE_LINE_OPACITY
     }).addTo(map);
 
     const markers = createRouteMarkers(coordinates, color);
@@ -1919,6 +2267,7 @@ function addImportedRoute(name, coordinates, elevations) {
     };
 
     routes.push(route);
+    updateRouteMapStyles();
 
     bindRoutePopup(polylineLayer, route);
     bindRouteHoverEffects(route);
@@ -2018,49 +2367,85 @@ document.getElementById('destination').addEventListener('keydown', function (e) 
 });
 
 // ============ Color Presets ============
+function getColorLabel(index) {
+    return COLOR_PALETTE_LABELS[index] || `Color ${index + 1}`;
+}
+
+function getColorOptionButtons() {
+    return Array.from(document.querySelectorAll('.color-option'));
+}
+
 function initColorPresets() {
     const container = document.getElementById('colorOptions');
     container.innerHTML = COLOR_PALETTE.map((color, idx) => `
         <button type="button" class="color-option ${idx === selectedColorIndex ? 'selected' : ''}"
-                style="background: ${color}"
+                style="--route-color: ${color}"
                 data-action="select-color" data-color-index="${idx}"
-                role="option"
-                aria-selected="${idx === selectedColorIndex}"
-                aria-label="Color ${idx + 1}: ${color}"
-                title="${color}"></button>
+                role="radio"
+                aria-checked="${idx === selectedColorIndex}"
+                tabindex="${idx === selectedColorIndex ? '0' : '-1'}"
+                aria-label="${escapeHtml(getColorLabel(idx))} route color"
+                title="${escapeHtml(getColorLabel(idx))}"></button>
     `).join('');
 
-    updateColorSwatch();
+    updateColorSelectionUi();
 }
 
-function updateColorSwatch() {
+function updateColorSelectionUi(focusSelected = false) {
     // Ensure we have a valid color index
     if (selectedColorIndex < 0 || selectedColorIndex >= COLOR_PALETTE.length) {
         selectedColorIndex = Math.floor(Math.random() * COLOR_PALETTE.length);
     }
     const color = COLOR_PALETTE[selectedColorIndex];
-    document.getElementById('colorSwatch').style.background = color;
+    const label = getColorLabel(selectedColorIndex);
+    const swatch = document.getElementById('colorSwatch');
     document.getElementById('routeColor').value = color;
+
+    if (swatch) {
+        swatch.style.setProperty('--selected-route-color', color);
+        swatch.setAttribute('aria-label', `${label} route color selected. Choose route color`);
+        swatch.title = `${label} route color`;
+    }
+
+    getColorOptionButtons().forEach((button, index) => {
+        const isSelected = index === selectedColorIndex;
+        button.classList.toggle('selected', isSelected);
+        button.setAttribute('aria-checked', String(isSelected));
+        button.tabIndex = isSelected ? 0 : -1;
+        if (focusSelected && isSelected) button.focus();
+    });
 }
 
-function toggleColorDropdown() {
+function openColorPalette(focusSelected = true) {
     const dropdown = document.getElementById('colorDropdown');
     const swatch = document.getElementById('colorSwatch');
-    const isVisible = dropdown.classList.toggle('visible');
-    swatch.setAttribute('aria-expanded', isVisible);
-    if (isVisible) {
-        document.querySelector('.color-option.selected')?.focus();
-    }
+    dropdown.classList.add('visible');
+    dropdown.setAttribute('aria-hidden', 'false');
+    swatch.setAttribute('aria-expanded', 'true');
+    if (focusSelected) document.querySelector('.color-option.selected')?.focus();
 }
 
-function closeColorDropdown() {
+function closeColorPalette(focusSwatch = false) {
     const dropdown = document.getElementById('colorDropdown');
     const swatch = document.getElementById('colorSwatch');
     dropdown.classList.remove('visible');
+    dropdown.setAttribute('aria-hidden', 'true');
     swatch.setAttribute('aria-expanded', 'false');
+    if (focusSwatch) swatch.focus();
 }
 
-function selectColor(idx) {
+function toggleColorPalette(focusSelected = false) {
+    const dropdown = document.getElementById('colorDropdown');
+    if (dropdown.classList.contains('visible')) {
+        closeColorPalette();
+    } else {
+        openColorPalette(focusSelected);
+    }
+}
+
+function selectColor(idx, focusSelected = false, closePalette = false) {
+    if (!Number.isInteger(idx) || idx < 0 || idx >= COLOR_PALETTE.length) return;
+
     selectedColorIndex = idx;
 
     // Remove this color from the available pool if present
@@ -2069,40 +2454,46 @@ function selectColor(idx) {
         availableColorIndices.splice(poolIdx, 1);
     }
 
-    updateColorSwatch();
-
-    // Update selected state
-    document.querySelectorAll('.color-option').forEach((btn, i) => {
-        btn.classList.toggle('selected', i === idx);
-        btn.setAttribute('aria-selected', i === idx);
-    });
-
-    closeColorDropdown();
-    document.getElementById('colorSwatch').focus();
+    updateColorSelectionUi(focusSelected);
+    if (closePalette) closeColorPalette(true);
 }
 
-function moveColorSelection(direction) {
-    const nextIndex = (selectedColorIndex + direction + COLOR_PALETTE.length) % COLOR_PALETTE.length;
-    selectColor(nextIndex);
-    const dropdown = document.getElementById('colorDropdown');
-    dropdown.classList.add('visible');
-    document.getElementById('colorSwatch').setAttribute('aria-expanded', 'true');
-    document.querySelector(`.color-option[data-color-index="${nextIndex}"]`)?.focus();
+function moveColorSelection(currentIndex, direction) {
+    const nextIndex = (currentIndex + direction + COLOR_PALETTE.length) % COLOR_PALETTE.length;
+    selectColor(nextIndex, true);
 }
 
 function handleColorPickerKeydown(event) {
+    const button = event.target.closest('.color-option');
+    if (!button) return;
+
+    const currentIndex = Number(button.dataset.colorIndex);
+
     if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
         event.preventDefault();
-        moveColorSelection(1);
+        moveColorSelection(currentIndex, 1);
     } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
         event.preventDefault();
-        moveColorSelection(-1);
+        moveColorSelection(currentIndex, -1);
+    } else if (event.key === 'Home') {
+        event.preventDefault();
+        selectColor(0, true);
+    } else if (event.key === 'End') {
+        event.preventDefault();
+        selectColor(COLOR_PALETTE.length - 1, true);
     } else if (event.key === 'Escape') {
-        closeColorDropdown();
-        document.getElementById('colorSwatch').focus();
+        event.preventDefault();
+        closeColorPalette(true);
     } else if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
-        toggleColorDropdown();
+        selectColor(currentIndex, false, true);
+    }
+}
+
+function handleColorSwatchKeydown(event) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggleColorPalette(true);
     }
 }
 
@@ -2157,11 +2548,10 @@ function selectRandomColor() {
     initColorPresets();
 }
 
-// Close dropdown when clicking outside
-document.addEventListener('click', function (e) {
+document.addEventListener('click', function (event) {
     const wrapper = document.querySelector('.color-picker-wrapper');
-    if (wrapper && !wrapper.contains(e.target)) {
-        closeColorDropdown();
+    if (wrapper && !wrapper.contains(event.target)) {
+        closeColorPalette();
     }
 });
 
@@ -2193,8 +2583,20 @@ document.addEventListener('click', function (e) {
         case 'move-stop-down':
             moveStop(actionEl, 1);
             break;
+        case 'move-origin-down':
+            moveEndpoint('origin', 1);
+            break;
+        case 'move-destination-up':
+            moveEndpoint('destination', -1);
+            break;
         case 'select-color':
-            selectColor(Number(actionEl.dataset.colorIndex));
+            selectColor(Number(actionEl.dataset.colorIndex), false, true);
+            break;
+        case 'confirm-map-click-prompt':
+            confirmMapClickPrompt();
+            break;
+        case 'cancel-map-click-prompt':
+            cancelMapClickPrompt();
             break;
     }
 });
@@ -2242,8 +2644,8 @@ document.querySelectorAll('[data-gps-field]').forEach(btn => {
 
 document.getElementById('addStopBtn').addEventListener('click', () => addStop());
 document.getElementById('reverseRouteBtn').addEventListener('click', reverseRoute);
-document.getElementById('colorSwatch').addEventListener('click', toggleColorDropdown);
-document.getElementById('colorSwatch').addEventListener('keydown', handleColorPickerKeydown);
+document.getElementById('colorSwatch').addEventListener('click', () => toggleColorPalette(false));
+document.getElementById('colorSwatch').addEventListener('keydown', handleColorSwatchKeydown);
 document.getElementById('colorOptions').addEventListener('keydown', handleColorPickerKeydown);
 document.getElementById('unitKm').addEventListener('click', () => setUnit('km'));
 document.getElementById('unitMi').addEventListener('click', () => setUnit('mi'));
@@ -2273,6 +2675,7 @@ document.querySelectorAll('[data-map-pick-target]').forEach(btn => {
 
 // ============ Initialize ============
 renderIconPlaceholders();
+setupTravelModeToggle();
 selectRandomColor(); // Pick initial random color
 setupInfoTooltips();
 setupImport();
