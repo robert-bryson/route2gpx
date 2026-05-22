@@ -75,7 +75,10 @@ def fetch_route_data(origin, destination, mode, api_key):
     if response.status_code != 200:
         raise Route2GpxError(f"API request failed: {response.text}")
 
-    return response.json()
+    try:
+        return response.json()
+    except ValueError as error:
+        raise Route2GpxError("API response was not valid JSON.") from error
 
 
 def extract_encoded_polyline(data):
@@ -92,7 +95,7 @@ def generate_gpx(origin, destination, coordinates, start_time=None):
     start_time = start_time or datetime.now(UTC)
     gpx_lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
-        '<gpx version="1.1" creator="route2gpx">',
+        '<gpx version="1.1" creator="route2gpx" xmlns="http://www.topografix.com/GPX/1/1">',
         f"  <trk><name>Route: {escape_xml(origin)} to {escape_xml(destination)}</name>",
         "    <trkseg>",
     ]

@@ -146,6 +146,10 @@ beforeAll(() => {
   const fogCode = readFileSync(resolve(__dirname, '..', 'fog.js'), 'utf-8');
   (0, eval)(fogCode);
 
+  // Load icon helpers before app.js since app.js renders route icons.
+  const iconCode = readFileSync(resolve(__dirname, '..', 'icons.js'), 'utf-8');
+  (0, eval)(iconCode);
+
   // Load app.js into global scope via indirect eval
   const code = readFileSync(resolve(__dirname, '..', 'app.js'), 'utf-8');
   (0, eval)(code);
@@ -379,6 +383,29 @@ describe('coordinate helpers', () => {
   });
 });
 
+// ============ waypoint management ============
+describe('waypoint management', () => {
+  test('reorders waypoint values without losing input contents', () => {
+    document.getElementById('origin').value = '';
+    document.getElementById('destination').value = '';
+    document.getElementById('stopsContainer').innerHTML = '';
+
+    globalThis.addStop('First stop');
+    globalThis.addStop('Second stop');
+    globalThis.addStop('Third stop');
+
+    let rows = document.querySelectorAll('.stop-row');
+    globalThis.moveStop(rows[1].querySelector('[data-action="move-stop-up"]'), -1);
+    expect(globalThis.getStops()).toEqual(['Second stop', 'First stop', 'Third stop']);
+
+    rows = document.querySelectorAll('.stop-row');
+    globalThis.moveStop(rows[1].querySelector('[data-action="move-stop-down"]'), 1);
+    expect(globalThis.getStops()).toEqual(['Second stop', 'Third stop', 'First stop']);
+    expect(document.querySelector('.stop-row [data-action="move-stop-up"]').disabled).toBe(true);
+    expect(document.querySelectorAll('.stop-row [data-action="move-stop-down"]')[2].disabled).toBe(true);
+  });
+});
+
 // ============ map click picker ============
 describe('map click picker', () => {
   test('sets origin and exits for single-target picking', () => {
@@ -413,6 +440,103 @@ describe('map click picker', () => {
   });
 });
 
+// ============ route creation form state ============
+describe('route creation form state', () => {
+  test('keeps origin, destination, and waypoint values after creating a route', async () => {
+    const originalFetch = globalThis.fetch;
+    document.getElementById('origin').value = 'Origin City';
+    document.getElementById('destination').value = 'Destination City';
+    document.getElementById('stopsContainer').innerHTML = '';
+    globalThis.addStop('Scenic Stop');
+    document.getElementById('travelMode').value = 'DRIVE';
+    document.getElementById('routeColor').value = '#ff4757';
+    localStorage.setItem('route2gpx_apiKey', 'test-key');
+
+    globalThis.fetch = vi.fn((url) => {
+      if (String(url).includes('computeRoutes')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            routes: [{
+              polyline: { encodedPolyline: '_p~iF~ps|U_ulLnnqC_mqNvxq`@' },
+              distanceMeters: 1234,
+              duration: '600s',
+            }],
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ status: 'OK', results: [] }),
+      });
+    });
+
+    try {
+      await globalThis.getRoute();
+      expect(document.getElementById('origin').value).toBe('Origin City');
+      expect(document.getElementById('destination').value).toBe('Destination City');
+      expect(globalThis.getStops()).toEqual(['Scenic Stop']);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+// ============ route label helpers ============
+describe('route label helpers', () => {
+  test('extracts formatted addresses from Geocoding API results', () => {
+    const data = {
+      status: 'OK',
+      results: [{ formatted_address: 'Telluride, CO 81435, USA' }],
+    };
+    expect(globalThis.getReverseGeocodeDisplayName(data)).toBe('Telluride, CO 81435, USA');
+  });
+
+  test('extracts display names from Places-shaped results', () => {
+    const data = {
+      places: [{ displayName: { text: 'Black Canyon of the Gunnison National Park' } }],
+    };
+    expect(globalThis.getReverseGeocodeDisplayName(data)).toBe('Black Canyon of the Gunnison National Park');
+  });
+
+  test('builds route names from resolved endpoint labels', () => {
+    expect(globalThis.buildRouteName('Montrose, CO', 'Telluride, CO')).toBe('Montrose, CO → Telluride, CO');
+  });
+
+  test('resolves coordinate endpoint labels with reverse geocoding', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        status: 'OK',
+        results: [{ formatted_address: 'Ridgway, CO 81432, USA' }],
+      }),
+    }));
+
+    try {
+      await expect(globalThis.resolveRouteEndpointLabel('38.1520, -107.7610', 'test-key')).resolves.toBe('Ridgway, CO 81432, USA');
+      expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining('maps.googleapis.com/maps/api/geocode/json'), expect.any(Object));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('keeps coordinate endpoint labels when reverse geocoding is denied', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ status: 'REQUEST_DENIED', results: [] }),
+    }));
+
+    try {
+      await expect(globalThis.resolveRouteEndpointLabel('38.1520, -107.7610', 'test-key')).resolves.toBe('38.1520, -107.7610');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
 // ============ assertFileSize ============
 describe('assertFileSize', () => {
   test('allows files at the configured limit', () => {
@@ -424,6 +548,28 @@ describe('assertFileSize', () => {
   });
 });
 
+// ============ storage handling ============
+describe('storage handling', () => {
+  test('shows a visible error when localStorage quota is exceeded', () => {
+    const originalSetItem = globalThis.localStorage.setItem.getMockImplementation();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    globalThis.localStorage.setItem.mockImplementation(() => {
+      throw new DOMException('Storage is full', 'QuotaExceededError');
+    });
+
+    try {
+      globalThis.saveToStorage();
+      expect(consoleError).toHaveBeenCalledWith('Failed to save to storage:', 'Storage is full');
+      expect(document.getElementById('status').textContent).toContain('browser storage is full');
+      expect(document.getElementById('status').className).toContain('error');
+    } finally {
+      globalThis.localStorage.setItem.mockImplementation(originalSetItem);
+      consoleError.mockRestore();
+      globalThis.saveToStorage();
+    }
+  });
+});
+
 // ============ sanitizeColor ============
 describe('sanitizeColor', () => {
   test('accepts valid hex color', () => {
@@ -432,6 +578,11 @@ describe('sanitizeColor', () => {
 
   test('accepts 3-digit hex', () => {
     expect(globalThis.sanitizeColor('#f00', 0)).toBe('#f00');
+  });
+
+  test('rejects malformed hex lengths', () => {
+    expect(globalThis.sanitizeColor('#12345', 0)).not.toBe('#12345');
+    expect(globalThis.sanitizeColor('#1234567', 0)).not.toBe('#1234567');
   });
 
   test('rejects invalid color and returns fallback', () => {
@@ -457,26 +608,32 @@ describe('sanitizeColor', () => {
   });
 });
 
-// ============ getModeEmoji ============
-describe('getModeEmoji', () => {
-  test('returns car emoji for DRIVE', () => {
-    expect(globalThis.getModeEmoji('DRIVE')).toBe('🚗');
+// ============ getModeIconName ============
+describe('getModeIconName', () => {
+  test('returns car icon for DRIVE', () => {
+    expect(globalThis.getModeIconName('DRIVE')).toBe('car-front');
   });
 
-  test('returns bus emoji for TRANSIT', () => {
-    expect(globalThis.getModeEmoji('TRANSIT')).toBe('🚌');
+  test('returns bus icon for TRANSIT', () => {
+    expect(globalThis.getModeIconName('TRANSIT')).toBe('bus-front');
   });
 
-  test('returns bicycle emoji for BICYCLE', () => {
-    expect(globalThis.getModeEmoji('BICYCLE')).toBe('🚴');
+  test('returns bicycle icon for BICYCLE', () => {
+    expect(globalThis.getModeIconName('BICYCLE')).toBe('bike');
   });
 
-  test('returns walk emoji for WALK', () => {
-    expect(globalThis.getModeEmoji('WALK')).toBe('🚶');
+  test('returns walk icon for WALK', () => {
+    expect(globalThis.getModeIconName('WALK')).toBe('footprints');
   });
 
-  test('returns pin for unknown mode', () => {
-    expect(globalThis.getModeEmoji('UNKNOWN')).toBe('📍');
+  test('returns pin icon for unknown mode', () => {
+    expect(globalThis.getModeIconName('UNKNOWN')).toBe('map-pin');
+  });
+
+  test('renders accessible decorative SVG markup', () => {
+    expect(globalThis.getModeIconSvg('DRIVE')).toContain('<svg');
+    expect(globalThis.getModeIconSvg('DRIVE')).toContain('aria-hidden="true"');
+    expect(globalThis.getModeIconSvg('DRIVE')).toContain('focusable="false"');
   });
 });
 
@@ -542,13 +699,13 @@ describe('generateGPX', () => {
     expect(gpx).toContain('End: End Place');
   });
 
-  test('includes stop waypoints', () => {
+  test('includes exact coordinate stop waypoints', () => {
     const route = {
       name: 'Stops Test',
       origin: 'A',
       destination: 'C',
       travelMode: 'DRIVE',
-      stops: ['B'],
+      stops: ['40.5, -74.5'],
       coordinates: [[40.0, -74.0], [40.5, -74.5], [41.0, -75.0]],
       distance: 2000,
       duration: '1200s',
@@ -557,7 +714,44 @@ describe('generateGPX', () => {
     };
 
     const gpx = globalThis.generateGPX(route);
-    expect(gpx).toContain('Stop 1: B');
+    expect(gpx).toContain('<wpt lat="40.500000" lon="-74.500000">');
+    expect(gpx).toContain('Stop 1: 40.5, -74.5');
+  });
+
+  test('does not invent waypoint coordinates for address stops', () => {
+    const route = {
+      name: 'Address Stops Test',
+      origin: 'A',
+      destination: 'C',
+      travelMode: 'DRIVE',
+      stops: ['Coffee & Pie'],
+      coordinates: [[40.0, -74.0], [40.5, -74.5], [41.0, -75.0]],
+      distance: 2000,
+      duration: '1200s',
+      color: '#1e90ff',
+      id: 3,
+    };
+
+    const gpx = globalThis.generateGPX(route);
+    expect((gpx.match(/<wpt /g) || [])).toHaveLength(2);
+    expect(gpx).toContain('Stops: Coffee &amp; Pie');
+    expect(gpx).not.toContain('<name>Stop 1: Coffee');
+  });
+
+  test('handles routes without a stops array', () => {
+    const route = {
+      name: 'Legacy Route',
+      origin: 'A',
+      destination: 'B',
+      travelMode: 'DRIVE',
+      coordinates: [[40.0, -74.0], [41.0, -75.0]],
+      distance: 1000,
+      duration: '600s',
+      color: '#ff4757',
+      id: 30,
+    };
+
+    expect(() => globalThis.generateGPX(route)).not.toThrow();
   });
 
   test('escapes XML in route names', () => {
@@ -642,10 +836,10 @@ describe('generateGPX', () => {
   });
 });
 
-// ============ getModeEmoji (extended) ============
-describe('getModeEmoji extended', () => {
-  test('returns folder emoji for IMPORTED', () => {
-    expect(globalThis.getModeEmoji('IMPORTED')).toBe('📂');
+// ============ getModeIconName (extended) ============
+describe('getModeIconName extended', () => {
+  test('returns folder icon for IMPORTED', () => {
+    expect(globalThis.getModeIconName('IMPORTED')).toBe('folder-up');
   });
 });
 

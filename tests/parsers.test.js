@@ -423,6 +423,8 @@ describe('detectImportFormat', () => {
         if (!globalThis.detectImportFormat) {
             const fogCode = readFileSync(resolve(__dirname, '..', 'fog.js'), 'utf-8');
             (0, eval)(fogCode);
+            const iconCode = readFileSync(resolve(__dirname, '..', 'icons.js'), 'utf-8');
+            (0, eval)(iconCode);
             const appCode = readFileSync(resolve(__dirname, '..', 'app.js'), 'utf-8');
             (0, eval)(appCode);
         }

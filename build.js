@@ -11,7 +11,7 @@ fs.rmSync(dist, { recursive: true, force: true });
 fs.mkdirSync(dist);
 
 // Bundle & minify JS
-const src = ['parsers.js', 'fog.js', 'app.js'].map(f => fs.readFileSync(f, 'utf8')).join('\n');
+const src = ['parsers.js', 'fog.js', 'icons.js', 'app.js'].map(f => fs.readFileSync(f, 'utf8')).join('\n');
 const minified = execSync('npx esbuild --minify --loader=js', { input: src, encoding: 'utf8' });
 
 // Content hash for cache busting
@@ -42,6 +42,7 @@ fs.writeFileSync(path.join(dist, 'index.html'), html);
 
 // Copy static files
 fs.copyFileSync('robots.txt', path.join(dist, 'robots.txt'));
+fs.copyFileSync('favicon.svg', path.join(dist, 'favicon.svg'));
 
 // Report
 const origSize = fs.statSync('index.html').size + src.length;

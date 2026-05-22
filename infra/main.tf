@@ -23,7 +23,7 @@ resource "aws_amplify_app" "route2gpx" {
           - key: 'Permissions-Policy'
             value: 'geolocation=(self), camera=(), microphone=()'
           - key: 'Content-Security-Policy'
-            value: "default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://*.basemaps.cartocdn.com https://unpkg.com; connect-src 'self' https://routes.googleapis.com; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+            value: "default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://*.basemaps.cartocdn.com https://unpkg.com; connect-src 'self' https://routes.googleapis.com https://maps.googleapis.com; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
       - pattern: '*.js'
         headers:
           - key: 'Cache-Control'

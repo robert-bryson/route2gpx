@@ -7,6 +7,7 @@ let previewMarkers = [];
 let activeModal = null;
 let activeModalReturnFocus = null;
 let statusTimer = null;
+let storageWarningShown = false;
 
 const API_KEY_STORAGE_KEY = 'route2gpx_apiKey';
 const API_KEY_MEMORY_KEY = 'route2gpx_apiKey_session';
@@ -14,6 +15,7 @@ const ROUTES_STORAGE_KEY = 'route2gpx_routes';
 const UNIT_STORAGE_KEY = 'route2gpx_unit';
 const ROUTE_REQUEST_TIMEOUT_MS = 30000;
 const ELEVATION_REQUEST_TIMEOUT_MS = 20000;
+const REVERSE_GEOCODE_REQUEST_TIMEOUT_MS = 8000;
 const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_DECOMPRESSED_IMPORT_BYTES = 120 * 1024 * 1024;
 
@@ -124,7 +126,7 @@ function saveToStorage() {
             name: r.name,
             origin: r.origin,
             destination: r.destination,
-            stops: r.stops,
+            stops: normalizeStops(r.stops),
             travelMode: r.travelMode,
             color: r.color,
             coordinates: r.coordinates,
@@ -134,9 +136,28 @@ function saveToStorage() {
             visible: r.visible !== false
         }));
         localStorage.setItem(ROUTES_STORAGE_KEY, JSON.stringify(routeData));
+        storageWarningShown = false;
     } catch (error) {
-        console.error('Failed to save to storage:', error.message);
+        notifyStorageFailure(error);
     }
+}
+
+function isStorageQuotaError(error) {
+    return error?.name === 'QuotaExceededError' ||
+        error?.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+        error?.code === 22 ||
+        error?.code === 1014;
+}
+
+function notifyStorageFailure(error) {
+    console.error('Failed to save to storage:', error.message);
+    if (storageWarningShown) return;
+
+    storageWarningShown = true;
+    const message = isStorageQuotaError(error)
+        ? 'Routes were not saved because browser storage is full. Export or delete routes before adding more.'
+        : 'Routes could not be saved in this browser.';
+    showStatus(message, true);
 }
 
 function loadExternalScript(scriptConfig) {
@@ -191,23 +212,23 @@ function createRoutePopup(route) {
         <div class="route-popup">
             <h4>${escapeHtml(route.name)}</h4>
             <div class="route-meta">
-                <span>📏 ${formatDistance(route.distance)}</span>
-                <span>⏱️ ${formatDuration(route.duration)}</span>
+                <span>${iconSvg('ruler', 'icon-sm')} ${formatDistance(route.distance)}</span>
+                <span>${iconSvg('clock', 'icon-sm')} ${formatDuration(route.duration)}</span>
             </div>
             <div class="route-meta">
-                <span>${getModeEmoji(route.travelMode)} ${escapeHtml(route.travelMode.toLowerCase())}</span>
-                ${stopCount > 0 ? `<span>📍 ${stopCount} stop${stopCount > 1 ? 's' : ''}</span>` : ''}
+                <span>${getModeIconSvg(route.travelMode)} ${escapeHtml(route.travelMode.toLowerCase())}</span>
+                ${stopCount > 0 ? `<span>${iconSvg('map-pin', 'icon-sm')} ${stopCount} stop${stopCount > 1 ? 's' : ''}</span>` : ''}
             </div>
             <div class="route-meta" style="border-top: 1px solid #eee; padding-top: 8px; margin-top: 4px;">
-                <span>📄 ${fileSize}</span>
-                <span>📌 ${pointCount.toLocaleString()} points</span>
+                <span>${iconSvg('file-down', 'icon-sm')} ${fileSize}</span>
+                <span>${iconSvg('route', 'icon-sm')} ${pointCount.toLocaleString()} points</span>
             </div>
             <div class="popup-actions">
                 <button class="popup-btn download" data-action="download-route" data-route-id="${route.id}" title="Download GPX">
-                    ⬇️ Download
+                    ${iconSvg('download', 'icon-sm')} Download
                 </button>
                 <button class="popup-btn delete" data-action="remove-route" data-route-id="${route.id}" title="Remove route">
-                    🗑️ Remove
+                    ${iconSvg('trash-2', 'icon-sm')} Remove
                 </button>
             </div>
         </div>
@@ -299,15 +320,23 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-const VALID_COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;
-const DEFAULT_ROUTE_COLORS = ['#4285F4', '#EA4335', '#34A853', '#FBBC05', '#9C27B0', '#00BCD4', '#FF9800', '#795548'];
+const VALID_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+const DEFAULT_ROUTE_COLORS = COLOR_PALETTE;
 function sanitizeColor(color, fallbackIndex) {
     if (typeof color === 'string' && VALID_COLOR_RE.test(color)) return color;
     return DEFAULT_ROUTE_COLORS[fallbackIndex % DEFAULT_ROUTE_COLORS.length];
 }
 
+function normalizeStops(stops) {
+    if (!Array.isArray(stops)) return [];
+    return stops
+        .map(stop => typeof stop === 'string' ? stop.trim() : '')
+        .filter(Boolean);
+}
+
 function restoreRoute(data) {
     if (!Number.isFinite(data.id)) data.id = Date.now();
+    data.stops = normalizeStops(data.stops);
     data.color = sanitizeColor(data.color, routes.length);
     data.visible = data.visible !== false;
     data.elevationStatus = data.elevations && data.elevations.some(elevation => elevation !== null) ? 'ready' : null;
@@ -810,7 +839,20 @@ function addStop(value = '') {
         <span class="stop-number" aria-hidden="true">${stopNumber}</span>
         <input type="text" class="stop-input" placeholder="Waypoint ${stopNumber}"
                value="${escapeHtml(value)}" aria-label="Waypoint ${stopNumber}" />
-        <button type="button" data-action="remove-stop" aria-label="Remove waypoint ${stopNumber}">✕</button>
+        <div class="stop-row-actions" aria-label="Waypoint ${stopNumber} actions">
+            <button type="button" class="stop-action-btn stop-move-btn" data-action="move-stop-up"
+                    aria-label="Move waypoint ${stopNumber} up" title="Move waypoint up">
+                ${iconSvg('chevron-up', 'icon-sm')}
+            </button>
+            <button type="button" class="stop-action-btn stop-move-btn" data-action="move-stop-down"
+                    aria-label="Move waypoint ${stopNumber} down" title="Move waypoint down">
+                ${iconSvg('chevron-down', 'icon-sm')}
+            </button>
+            <button type="button" class="stop-action-btn stop-remove-btn" data-action="remove-stop"
+                    aria-label="Remove waypoint ${stopNumber}" title="Remove waypoint">
+                ${iconSvg('x', 'icon-sm')}
+            </button>
+        </div>
     `;
     container.appendChild(row);
 
@@ -828,6 +870,24 @@ function removeStop(btn) {
     updatePreviewMarkers();
 }
 
+function moveStop(btn, direction) {
+    const row = btn.closest('.stop-row');
+    const container = document.getElementById('stopsContainer');
+    if (!row || !container) return;
+
+    if (direction < 0 && row.previousElementSibling) {
+        container.insertBefore(row, row.previousElementSibling);
+    } else if (direction > 0 && row.nextElementSibling) {
+        container.insertBefore(row.nextElementSibling, row);
+    }
+
+    renumberStops();
+    updatePreviewMarkers();
+    const moveButton = row.querySelector(`[data-action="${direction < 0 ? 'move-stop-up' : 'move-stop-down'}"]`);
+    if (moveButton && !moveButton.disabled) moveButton.focus();
+    else row.querySelector('input')?.focus();
+}
+
 function renumberStops() {
     const rows = document.querySelectorAll('.stop-row');
     rows.forEach((row, idx) => {
@@ -835,6 +895,15 @@ function renumberStops() {
         row.querySelector('.stop-number').textContent = num;
         row.querySelector('input').setAttribute('aria-label', `Waypoint ${num}`);
         row.querySelector('input').placeholder = `Waypoint ${num}`;
+        row.querySelector('.stop-row-actions')?.setAttribute('aria-label', `Waypoint ${num} actions`);
+        const moveUpButton = row.querySelector('[data-action="move-stop-up"]');
+        const moveDownButton = row.querySelector('[data-action="move-stop-down"]');
+        const removeButton = row.querySelector('[data-action="remove-stop"]');
+        moveUpButton?.setAttribute('aria-label', `Move waypoint ${num} up`);
+        moveDownButton?.setAttribute('aria-label', `Move waypoint ${num} down`);
+        removeButton?.setAttribute('aria-label', `Remove waypoint ${num}`);
+        if (moveUpButton) moveUpButton.disabled = idx === 0;
+        if (moveDownButton) moveDownButton.disabled = idx === rows.length - 1;
     });
 }
 
@@ -903,6 +972,76 @@ function parseLocation(input) {
         };
     }
     return { address: input };
+}
+
+function getHumanPlaceName(place) {
+    if (!place || typeof place !== 'object') return '';
+
+    const candidates = [
+        place.displayName?.text,
+        place.shortFormattedAddress,
+        place.formattedAddress,
+        place.formatted_address,
+        place.plus_code?.compound_code,
+        place.plusCode?.compoundCode
+    ];
+
+    const name = candidates.find(value => typeof value === 'string' && value.trim());
+    return name ? name.trim() : '';
+}
+
+function getReverseGeocodeDisplayName(data) {
+    if (!data || typeof data !== 'object') return '';
+
+    if (Array.isArray(data.results)) {
+        const result = data.results.find(item => getHumanPlaceName(item));
+        return getHumanPlaceName(result);
+    }
+
+    if (Array.isArray(data.places)) {
+        const place = data.places.find(item => getHumanPlaceName(item));
+        return getHumanPlaceName(place);
+    }
+
+    return getHumanPlaceName(data);
+}
+
+async function reverseGeocodeCoordinate(input, apiKey) {
+    const latLng = parseLatLngInput(input);
+    if (!latLng || !isValidLatLng(latLng)) return '';
+
+    const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+    url.searchParams.set('latlng', `${latLng.latitude},${latLng.longitude}`);
+    url.searchParams.set('key', apiKey);
+
+    try {
+        const response = await fetchWithTimeout(url.toString(), {}, REVERSE_GEOCODE_REQUEST_TIMEOUT_MS);
+        if (!response.ok) return '';
+        const data = await response.json();
+        if (data.status && data.status !== 'OK') return '';
+        return getReverseGeocodeDisplayName(data);
+    } catch (error) {
+        console.warn('Reverse geocoding unavailable:', error.message);
+        return '';
+    }
+}
+
+async function resolveRouteEndpointLabel(input, apiKey) {
+    if (!parseLatLngInput(input)) return input;
+    const placeName = await reverseGeocodeCoordinate(input, apiKey);
+    return placeName || input;
+}
+
+async function resolveRouteEndpointLabels(origin, destination, apiKey) {
+    const [originLabel, destinationLabel] = await Promise.all([
+        resolveRouteEndpointLabel(origin, apiKey),
+        resolveRouteEndpointLabel(destination, apiKey)
+    ]);
+    return { originLabel, destinationLabel };
+}
+
+function buildRouteName(originLabel, destinationLabel) {
+    return `${truncate(originLabel, 20)} → ${truncate(destinationLabel, 20)}`;
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = ROUTE_REQUEST_TIMEOUT_MS) {
@@ -1015,7 +1154,8 @@ async function getRoute() {
 
         // Generate route name (always auto-generated from origin → destination)
         const routeId = Date.now();
-        const routeName = `${truncate(origin, 20)} → ${truncate(destination, 20)}`;
+        const routeLabels = await resolveRouteEndpointLabels(origin, destination, apiKey);
+        const routeName = buildRouteName(routeLabels.originLabel, routeLabels.destinationLabel);
 
         // Create polyline
         const polylineLayer = L.polyline(coordinates, {
@@ -1034,8 +1174,8 @@ async function getRoute() {
         const route = {
             id: routeId,
             name: routeName,
-            origin,
-            destination,
+            origin: routeLabels.originLabel,
+            destination: routeLabels.destinationLabel,
             stops: [...stops],
             travelMode,
             color,
@@ -1061,12 +1201,7 @@ async function getRoute() {
         renderRoutesList();
         updateBulkButtons();
         saveToStorage();
-        showStatus(`Route added: ${formatDistance(distance)}, ${formatDuration(duration)}`);
-
-        // Clear form for next route
-        document.getElementById('stopsContainer').innerHTML = '';
-        document.getElementById('origin').value = '';
-        document.getElementById('destination').value = '';
+        showStatus(`Route added: ${formatDistance(distance)}, ${formatDuration(duration)}. Edit, add, or reorder points to create another route.`);
         exitClickMode();
 
         // Pick a random color for the next route
@@ -1079,9 +1214,6 @@ async function getRoute() {
             }
             renderRoutesList();
         });
-
-        // Return focus to origin for next route
-        document.getElementById('origin').focus();
 
     } catch (error) {
         showStatus(error.message, true);
@@ -1137,7 +1269,7 @@ function renderRoutesList() {
     if (routes.length === 0) {
         list.innerHTML = `
             <div style="color: #b7c3dc; text-align: center; padding: 20px;">
-                <div style="font-size: 1.6rem; margin-bottom: 6px;">🗺️</div>
+                <div style="margin-bottom: 6px;">${iconSvg('map', 'empty-state-icon')}</div>
                 <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px;">No routes yet</div>
                 <div style="font-size: 0.75rem; color: #a9b6d3;">Enter an origin and destination, then press Enter</div>
             </div>
@@ -1157,7 +1289,7 @@ function renderRoutesList() {
                     <div class="route-item-title">${escapeHtml(route.name)}</div>
                     </div>
                     <div class="route-item-meta">
-                        ${getModeEmoji(route.travelMode)} ${escapeHtml(route.travelMode.toLowerCase())} •
+                        <span class="route-meta-item">${getModeIconSvg(route.travelMode)} ${escapeHtml(route.travelMode.toLowerCase())}</span> •
                         ${formatDistance(route.distance)} • ${formatDuration(route.duration)}
                         ${route.stops.length > 0 ? ` • ${route.stops.length} stop(s)` : ''}
                         ${getElevationStatusText(route) ? ` • <span class="route-elevation-status">${getElevationStatusText(route)}</span>` : ''}
@@ -1168,26 +1300,21 @@ function renderRoutesList() {
                 <button class="btn-outline btn-small" data-action="toggle-visibility" data-route-id="${route.id}"
                         aria-label="${route.visible ? 'Hide' : 'Show'} route"
                         title="${route.visible ? 'Hide this route from the map' : 'Show this route on the map'}">
-                    ${route.visible ? '👁️ Hide' : '👁️‍🗨️ Show'}
+                    <span class="icon-label">${iconSvg(route.visible ? 'eye-off' : 'eye', 'icon-sm')} ${route.visible ? 'Hide' : 'Show'}</span>
                 </button>
                 <button class="btn-outline btn-small" data-action="download-route" data-route-id="${route.id}"
                         aria-label="Download GPX for ${escapeHtml(route.name)}"
                         title="Download as GPX file for GPS devices">
-                    💾 GPX
+                    <span class="icon-label">${iconSvg('file-down', 'icon-sm')} GPX</span>
                 </button>
                 <button class="btn-secondary btn-small" data-action="remove-route" data-route-id="${route.id}"
                         aria-label="Delete route ${escapeHtml(route.name)}"
                         title="Remove this route permanently">
-                    🗑️
+                    ${iconSvg('trash-2', 'icon-sm')}
                 </button>
             </div>
         </div>
     `).join('');
-}
-
-function getModeEmoji(mode) {
-    const emojis = { DRIVE: '🚗', TRANSIT: '🚌', BICYCLE: '🚴', WALK: '🚶', IMPORTED: '📂' };
-    return emojis[mode] || '📍';
 }
 
 function getElevationStatusText(route) {
@@ -1288,6 +1415,7 @@ function clearAllRoutes() {
 function generateGPX(route) {
     const now = new Date();
     const coords = route.coordinates;
+    const stops = normalizeStops(route.stops);
 
     // Calculate bounds
     let minlat = Infinity, maxlat = -Infinity, minlon = Infinity, maxlon = -Infinity;
@@ -1309,29 +1437,22 @@ function generateGPX(route) {
         '<gpx version="1.1" creator="route2gpx-web" xmlns="http://www.topografix.com/GPX/1/1">',
         '  <metadata>',
         `    <name>${escapeXml(route.name)}</name>`,
-        `    <desc>Route from ${escapeXml(route.origin)} to ${escapeXml(route.destination)} via ${route.travelMode.toLowerCase()}</desc>`,
+        `    <desc>Route from ${escapeXml(route.origin)} to ${escapeXml(route.destination)} via ${route.travelMode.toLowerCase()}${formatStopDescription(stops)}</desc>`,
         `    <time>${now.toISOString()}</time>`,
         `    <bounds minlat="${bounds.minlat}" minlon="${bounds.minlon}" maxlat="${bounds.maxlat}" maxlon="${bounds.maxlon}"/>`,
         '  </metadata>'
     ];
 
     // Add waypoints for origin, stops, and destination
-    lines.push(`  <wpt lat="${coords[0][0].toFixed(6)}" lon="${coords[0][1].toFixed(6)}">`);
-    lines.push(`    <name>Start: ${escapeXml(route.origin)}</name>`);
-    lines.push('  </wpt>');
+    appendWaypoint(lines, coords[0], `Start: ${route.origin}`);
 
-    route.stops.forEach((stop, idx) => {
-        // Approximate waypoint location (we don't have exact coords, use middle of route)
-        const approxIdx = Math.floor((idx + 1) * coords.length / (route.stops.length + 2));
-        const coord = coords[Math.min(approxIdx, coords.length - 1)];
-        lines.push(`  <wpt lat="${coord[0].toFixed(6)}" lon="${coord[1].toFixed(6)}">`);
-        lines.push(`    <name>Stop ${idx + 1}: ${escapeXml(stop)}</name>`);
-        lines.push('  </wpt>');
+    stops.forEach((stop, idx) => {
+        const latLng = parseLatLngInput(stop);
+        if (!latLng || !isValidLatLng(latLng)) return;
+        appendWaypoint(lines, [latLng.latitude, latLng.longitude], `Stop ${idx + 1}: ${stop}`);
     });
 
-    lines.push(`  <wpt lat="${coords[coords.length - 1][0].toFixed(6)}" lon="${coords[coords.length - 1][1].toFixed(6)}">`);
-    lines.push(`    <name>End: ${escapeXml(route.destination)}</name>`);
-    lines.push('  </wpt>');
+    appendWaypoint(lines, coords[coords.length - 1], `End: ${route.destination}`);
 
     // Add track
     lines.push('  <trk>');
@@ -1356,6 +1477,16 @@ function generateGPX(route) {
     lines.push('</gpx>');
 
     return lines.join('\n');
+}
+
+function formatStopDescription(stops) {
+    return stops.length > 0 ? `. Stops: ${stops.map(escapeXml).join(', ')}` : '';
+}
+
+function appendWaypoint(lines, [lat, lng], name) {
+    lines.push(`  <wpt lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}">`);
+    lines.push(`    <name>${escapeXml(name)}</name>`);
+    lines.push('  </wpt>');
 }
 
 // ============ Filename Confirmation Modal ============
@@ -1866,6 +1997,11 @@ document.getElementById('destination').addEventListener('input', function () {
     debouncedPreviewUpdate();
     updateInputValidation(this);
 });
+document.getElementById('stopsContainer').addEventListener('input', function (e) {
+    if (!e.target.matches('.stop-input')) return;
+    debouncedPreviewUpdate();
+    updateInputValidation(e.target);
+});
 
 // Enter key in origin/destination triggers route
 document.getElementById('origin').addEventListener('keydown', function (e) {
@@ -2051,6 +2187,12 @@ document.addEventListener('click', function (e) {
         case 'remove-stop':
             removeStop(actionEl);
             break;
+        case 'move-stop-up':
+            moveStop(actionEl, -1);
+            break;
+        case 'move-stop-down':
+            moveStop(actionEl, 1);
+            break;
         case 'select-color':
             selectColor(Number(actionEl.dataset.colorIndex));
             break;
@@ -2130,6 +2272,7 @@ document.querySelectorAll('[data-map-pick-target]').forEach(btn => {
 });
 
 // ============ Initialize ============
+renderIconPlaceholders();
 selectRandomColor(); // Pick initial random color
 setupInfoTooltips();
 setupImport();

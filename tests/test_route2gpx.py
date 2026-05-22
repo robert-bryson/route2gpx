@@ -108,6 +108,14 @@ class TestRouteApiHelpers:
             with pytest.raises(route2gpx.Route2GpxError, match="too slow"):
                 route2gpx.fetch_route_data("A", "B", "DRIVE", "test-key")
 
+    def test_fetch_route_data_rejects_invalid_json(self):
+        response = mock.Mock(status_code=200, text="not json")
+        response.json.side_effect = ValueError("invalid json")
+
+        with mock.patch("route2gpx.requests.post", return_value=response):
+            with pytest.raises(route2gpx.Route2GpxError, match="not valid JSON"):
+                route2gpx.fetch_route_data("A", "B", "DRIVE", "test-key")
+
     def test_extract_encoded_polyline(self):
         data = {"routes": [{"polyline": {"encodedPolyline": "abc"}}]}
         assert route2gpx.extract_encoded_polyline(data) == "abc"
@@ -130,6 +138,7 @@ class TestGPXOutput:
         )
         assert content.startswith('<?xml version="1.0"')
         assert "<gpx" in content
+        assert 'xmlns="http://www.topografix.com/GPX/1/1"' in content
         assert "<trk>" in content
         assert "<trkseg>" in content
         assert "<trkpt" in content

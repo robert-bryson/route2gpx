@@ -18,12 +18,12 @@
         content="Convert routes to GPX files for GPS devices. Runs entirely in your browser.">
     <link rel="canonical" href="https://route2gpx.rsmb.tv">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://*.basemaps.cartocdn.com https://unpkg.com; connect-src 'self' https://routes.googleapis.com; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'">
+        content="default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://*.basemaps.cartocdn.com https://unpkg.com; connect-src 'self' https://routes.googleapis.com https://maps.googleapis.com; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'">
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
     <link rel="preconnect" href="https://routes.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://maps.googleapis.com" crossorigin>
     <link rel="dns-prefetch" href="https://basemaps.cartocdn.com">
-    <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
     <style>
@@ -85,6 +85,13 @@
         .sidebar>header {
             padding-bottom: 10px;
             border-bottom: 1px solid #1e2d50;
+        }
+
+        .header-title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
         }
 
         .subtitle {
@@ -222,6 +229,45 @@
             min-height: 30px;
         }
 
+        .icon {
+            width: 1em;
+            height: 1em;
+            flex: 0 0 auto;
+            vertical-align: -0.15em;
+        }
+
+        .icon-sm {
+            width: 14px;
+            height: 14px;
+        }
+
+        .icon-lg {
+            width: 22px;
+            height: 22px;
+        }
+
+        .ui-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 0;
+        }
+
+        .icon-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+        }
+
+        button .icon,
+        .help-toggle .icon,
+        .modal h2 .icon,
+        .route-popup .icon,
+        .route-item .icon {
+            pointer-events: none;
+        }
+
         .btn-icon {
             padding: 0;
             min-width: 36px;
@@ -230,6 +276,20 @@
             display: flex;
             align-items: center;
             justify-content: center;
+        }
+
+        .btn-icon .icon {
+            width: 18px;
+            height: 18px;
+        }
+
+        .sidebar>header h1 {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            min-width: 0;
+            margin-bottom: 0;
+            white-space: nowrap;
         }
 
         .route-planner-card {
@@ -320,13 +380,14 @@
         }
 
         .stop-row {
-            display: flex;
+            display: grid;
+            grid-template-columns: 24px minmax(0, 1fr) auto;
             gap: 6px;
             align-items: center;
         }
 
         .stop-row input {
-            flex: 1;
+            min-width: 0;
         }
 
         .stop-row .stop-number {
@@ -341,10 +402,46 @@
             font-weight: 600;
         }
 
-        .stop-row button {
-            padding: 6px 10px;
+        .stop-row-actions {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+        }
+
+        .stop-row .stop-action-btn {
+            width: 28px;
+            min-width: 28px;
+            min-height: 32px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .stop-row .stop-move-btn {
+            background: transparent;
+            border: 1px solid #2a6f96;
+            color: #8edff2;
+        }
+
+        .stop-row .stop-move-btn:hover:not(:disabled) {
+            background: rgba(0, 212, 255, 0.1);
+            color: #00d4ff;
+        }
+
+        .stop-row .stop-remove-btn {
             background: #e94560;
-            min-height: 34px;
+            color: #fff;
+        }
+
+        .stop-row .stop-remove-btn:hover {
+            background: #d63a54;
+        }
+
+        .stop-row .stop-action-btn:disabled {
+            background: rgba(85, 85, 85, 0.35);
+            border-color: rgba(169, 182, 211, 0.16);
+            color: #63708a;
         }
 
         .waypoints-panel {
@@ -434,6 +531,17 @@
             margin-top: 3px;
         }
 
+        .route-meta-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .empty-state-icon {
+            width: 28px;
+            height: 28px;
+        }
+
         .route-elevation-status {
             color: #c7d2fe;
         }
@@ -449,18 +557,6 @@
             padding: 4px 7px;
             font-size: 0.74rem;
             min-height: 28px;
-        }
-
-        .bulk-actions {
-            display: flex;
-            gap: 6px;
-        }
-
-        .bulk-actions button {
-            flex: 1;
-            font-size: 0.78rem;
-            padding: 6px 8px;
-            min-height: 36px;
         }
 
         .map-container {
@@ -766,21 +862,6 @@
             flex: 0 0 70px;
         }
 
-        .settings-row {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            font-size: 0.82rem;
-            margin-top: 0;
-        }
-
-        .settings-row label {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            cursor: pointer;
-        }
-
         .unit-toggle {
             display: flex;
             border-radius: 6px;
@@ -802,6 +883,51 @@
             color: #1a1a2e;
         }
 
+        .routes-section {
+            gap: 8px;
+        }
+
+        .routes-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .section-heading {
+            font-size: 0.86rem;
+            line-height: 1.2;
+            color: #d7deee;
+            margin: 0;
+        }
+
+        .unit-control {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            color: #a9b6d3;
+            font-size: 0.72rem;
+            flex: 0 0 auto;
+        }
+
+        .unit-control .unit-toggle button {
+            min-height: 26px;
+            padding: 4px 9px;
+            font-size: 0.72rem;
+        }
+
+        .bulk-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+
+        .bulk-actions button {
+            font-size: 0.78rem;
+            padding: 6px 8px;
+            min-height: 36px;
+        }
+
         hr {
             border: none;
             border-top: 1px solid #1e2d50;
@@ -809,7 +935,7 @@
         }
 
         #getRouteBtn {
-            width: fit-content;
+            width: 100%;
             padding-inline: 14px;
         }
 
@@ -950,6 +1076,11 @@
             min-height: 16px;
         }
 
+        .info-tooltip .icon {
+            width: 11px;
+            height: 11px;
+        }
+
         .info-tooltip:hover,
         .info-tooltip:focus {
             background: #00d4ff;
@@ -996,22 +1127,27 @@
 
         /* Help section toggle */
         .help-toggle {
-            display: flex;
+            display: inline-flex;
             align-items: center;
-            gap: 6px;
-            background: none;
-            border: none;
-            color: #5a9bb5;
-            font-size: 0.75rem;
+            justify-content: center;
+            width: 24px;
+            min-width: 24px;
+            height: 24px;
+            min-height: 24px;
+            padding: 0;
+            background: rgba(0, 212, 255, 0.08);
+            border: 1px solid rgba(0, 212, 255, 0.35);
+            border-radius: 50%;
+            color: #7ddff5;
+            font-size: 0.78rem;
+            line-height: 1;
             cursor: pointer;
-            padding: 2px 0;
-            min-height: auto;
+            flex: 0 0 auto;
         }
 
         .help-toggle:hover {
-            background: none;
+            background: rgba(0, 212, 255, 0.16);
             color: #00d4ff;
-            text-decoration: underline;
         }
 
         .help-content {
@@ -1031,6 +1167,12 @@
             font-size: 0.85rem;
             color: #00d4ff;
             margin-bottom: 8px;
+        }
+
+        .tooltip-line {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
         }
 
         .help-content ul {
@@ -1182,10 +1324,17 @@
         }
 
         .import-section .import-icon {
-            font-size: 1.25rem;
             margin-bottom: 0;
             grid-row: 1 / span 3;
-            text-align: center;
+            color: #00d4ff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .import-section .import-icon .icon {
+            width: 22px;
+            height: 22px;
         }
 
         .import-section>* {
@@ -1410,23 +1559,28 @@
     <main id="app" class="app-shell">
         <aside class="sidebar" aria-label="Route controls">
             <header>
-                <h1>🗺️ Route to GPX</h1>
+                <div class="header-title-row">
+                    <h1><span class="ui-icon" data-icon="map" data-icon-class="icon-lg" aria-hidden="true"></span>
+                        Route to GPX</h1>
+                    <button type="button" class="help-toggle" aria-expanded="false" aria-controls="helpContent"
+                        aria-label="How it works and keyboard shortcuts" title="How it works and keyboard shortcuts">
+                        ?
+                    </button>
+                </div>
                 <p class="subtitle">Convert routes to GPX files for GPS devices</p>
             </header>
 
-            <button type="button" class="help-toggle" aria-expanded="false" aria-controls="helpContent">
-                <span>ℹ️</span> How it works & keyboard shortcuts
-            </button>
-
             <div id="helpContent" class="help-content" role="region" aria-labelledby="help-heading">
-                <h3 id="help-heading">🔒 Privacy First</h3>
+                <h3 id="help-heading"><span class="icon-label"><span class="ui-icon" data-icon="lock"
+                            data-icon-class="icon-sm" aria-hidden="true"></span> Privacy First</span></h3>
                 <p>This app runs <strong>entirely in your browser</strong>. There is no server — your API key and routes
                     are
                     kept in your browser and are never transmitted anywhere except directly to Google's API. You can
                     keep
                     your key for this tab only or remember it on this browser.</p>
 
-                <h3>⌨️ Keyboard Shortcuts</h3>
+                <h3><span class="icon-label"><span class="ui-icon" data-icon="keyboard" data-icon-class="icon-sm"
+                            aria-hidden="true"></span> Keyboard Shortcuts</span></h3>
                 <ul>
                     <li><kbd>Enter</kbd> in any field — Get route</li>
                     <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd> — Get route from anywhere</li>
@@ -1435,9 +1589,11 @@
                     <li><kbd>+</kbd> / <kbd>-</kbd> — Zoom map</li>
                 </ul>
 
-                <h3>💡 Tips</h3>
+                <h3><span class="icon-label"><span class="ui-icon" data-icon="lightbulb" data-icon-class="icon-sm"
+                            aria-hidden="true"></span> Tips</span></h3>
                 <ul>
-                    <li>Use the <strong>⌖</strong> buttons to set route points by clicking the map</li>
+                    <li>Use the <strong><span class="ui-icon" data-icon="crosshair" data-icon-class="icon-sm"
+                                aria-hidden="true"></span></strong> buttons to set route points by clicking the map</li>
                     <li>Enter coordinates as <code>lat, lng</code> (e.g., <code>40.7128, -74.0060</code>)</li>
                     <li>Routes persist when you refresh the page</li>
                     <li>GPX files work with Garmin, Wahoo, Strava, and most GPS apps</li>
@@ -1454,7 +1610,7 @@
                                 <span class="info-wrapper">
                                     <button type="button" class="info-tooltip"
                                         aria-label="More information about origin" aria-describedby="origin-help">
-                                        ?
+                                        <span class="ui-icon" data-icon="info" aria-hidden="true"></span>
                                     </button>
                                     <span class="tooltip-text" id="origin-help" role="tooltip">
                                         <strong>Accepted formats:</strong><br>
@@ -1462,8 +1618,12 @@
                                         • Place name: "Eiffel Tower, Paris"<br>
                                         • Coordinates: "40.7128, -74.0060"<br>
                                         Negative latitude is south; negative longitude is west.<br><br>
-                                        📍 button uses your GPS location<br>
-                                        ⌖ button lets you click the map
+                                        <span class="tooltip-line"><span class="ui-icon" data-icon="locate-fixed"
+                                                data-icon-class="icon-sm" aria-hidden="true"></span> button uses your
+                                            GPS location</span><br>
+                                        <span class="tooltip-line"><span class="ui-icon" data-icon="crosshair"
+                                                data-icon-class="icon-sm" aria-hidden="true"></span> button lets you
+                                            click the map</span>
                                     </span>
                                 </span>
                             </div>
@@ -1472,12 +1632,12 @@
                                     title="Starting point" />
                                 <button type="button" class="btn-icon btn-outline" data-gps-field="origin"
                                     aria-label="Use my current location as origin" title="Use GPS location">
-                                    📍
+                                    <span class="ui-icon" data-icon="locate-fixed" aria-hidden="true"></span>
                                 </button>
                                 <button type="button" class="btn-icon btn-outline map-pick-btn" id="originMapPickBtn"
                                     data-map-pick-target="origin" data-map-pick-flow="single" aria-pressed="false"
                                     aria-label="Pick origin on the map" title="Pick origin on the map">
-                                    ⌖
+                                    <span class="ui-icon" data-icon="crosshair" aria-hidden="true"></span>
                                 </button>
                             </div>
                         </div>
@@ -1492,7 +1652,7 @@
                                     <button type="button" class="info-tooltip"
                                         aria-label="More information about destination"
                                         aria-describedby="destination-help">
-                                        ?
+                                        <span class="ui-icon" data-icon="info" aria-hidden="true"></span>
                                     </button>
                                     <span class="tooltip-text" id="destination-help" role="tooltip">
                                         Same formats as origin — address, place name, or coordinates.
@@ -1504,13 +1664,13 @@
                                     title="End point" />
                                 <button type="button" class="btn-icon btn-outline" data-gps-field="destination"
                                     aria-label="Use my current location as destination" title="Use GPS location">
-                                    📍
+                                    <span class="ui-icon" data-icon="locate-fixed" aria-hidden="true"></span>
                                 </button>
                                 <button type="button" class="btn-icon btn-outline map-pick-btn"
                                     id="destinationMapPickBtn" data-map-pick-target="destination"
                                     data-map-pick-flow="single" aria-pressed="false"
                                     aria-label="Pick destination on the map" title="Pick destination on the map">
-                                    ⌖
+                                    <span class="ui-icon" data-icon="crosshair" aria-hidden="true"></span>
                                 </button>
                             </div>
                         </div>
@@ -1523,7 +1683,7 @@
                         <span class="info-wrapper">
                             <button type="button" class="info-tooltip" aria-label="More information about waypoints"
                                 aria-describedby="waypoints-help">
-                                ?
+                                <span class="ui-icon" data-icon="info" aria-hidden="true"></span>
                             </button>
                             <span class="tooltip-text" id="waypoints-help" role="tooltip">
                                 Add intermediate stops — the route will pass through each in order. Great for scenic
@@ -1537,16 +1697,18 @@
                     <div class="waypoint-buttons">
                         <button type="button" class="btn-outline btn-small" id="addStopBtn" aria-label="Add a waypoint"
                             title="Add a stop along your route">
-                            + Add
+                            <span class="icon-label"><span class="ui-icon" data-icon="plus" data-icon-class="icon-sm"
+                                    aria-hidden="true"></span> Add</span>
                         </button>
                         <button type="button" class="btn-outline btn-small map-pick-btn" id="pickWaypointMapBtn"
                             data-map-pick-target="waypoint" data-map-pick-flow="route" aria-pressed="false"
                             aria-label="Add waypoints by clicking the map" title="Add waypoints by clicking the map">
-                            ⌖
+                            <span class="ui-icon" data-icon="crosshair" aria-hidden="true"></span>
                         </button>
                         <button type="button" class="btn-outline btn-small" id="reverseRouteBtn"
                             aria-label="Reverse the route direction" title="Swap origin ↔ destination">
-                            🔄 Reverse
+                            <span class="icon-label"><span class="ui-icon" data-icon="refresh-cw"
+                                    data-icon-class="icon-sm" aria-hidden="true"></span> Reverse</span>
                         </button>
                     </div>
                 </div>
@@ -1555,10 +1717,10 @@
                     <div class="form-group" style="flex: 1;">
                         <label for="travelMode">Mode</label>
                         <select id="travelMode" title="Transportation method">
-                            <option value="DRIVE">🚗 Drive</option>
-                            <option value="BICYCLE">🚴 Bicycle</option>
-                            <option value="WALK">🚶 Walk</option>
-                            <option value="TRANSIT">🚌 Transit</option>
+                            <option value="DRIVE">Drive</option>
+                            <option value="BICYCLE">Bicycle</option>
+                            <option value="WALK">Walk</option>
+                            <option value="TRANSIT">Transit</option>
                         </select>
                     </div>
                     <div class="form-group" style="flex: 0 0 auto;">
@@ -1571,16 +1733,6 @@
                                 <div class="color-dropdown-grid" id="colorOptions"></div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <div class="settings-row">
-                    <span>Distance:</span>
-                    <div class="unit-toggle" role="radiogroup" aria-label="Distance unit">
-                        <button type="button" id="unitKm" class="active" role="radio" aria-checked="true"
-                            title="Show distances in kilometers">km</button>
-                        <button type="button" id="unitMi" role="radio" aria-checked="false"
-                            title="Show distances in miles">mi</button>
                     </div>
                 </div>
 
@@ -1599,7 +1751,8 @@
                     accept=".gpx,.kml,.fit,.tcx,.geojson,.json,.gz" multiple tabindex="-1" />
                 <label class="import-section" id="importDropZone" for="importFileInput" tabindex="0"
                     aria-label="Import GPS files. Supports GPX, KML, FIT, TCX, GeoJSON, and gzipped variants. Click to browse or drag and drop.">
-                    <div class="import-icon">📂</div>
+                    <div class="import-icon"><span class="ui-icon" data-icon="folder-up" data-icon-class="icon-lg"
+                            aria-hidden="true"></span></div>
                     <p><strong>Import GPS Files</strong></p>
                     <p>GPX · KML · FIT · TCX · GeoJSON (+ .gz)</p>
                     <p>Drag & drop or click to browse</p>
@@ -1611,35 +1764,53 @@
                 <input type="file" id="fogFileInput" class="file-input-hidden" accept=".zip" tabindex="-1" />
                 <label class="import-section fog-section" id="fogDropZone" for="fogFileInput" tabindex="0"
                     aria-label="Import Fog of World data. Click to browse or drag and drop a ZIP file.">
-                    <div class="import-icon">🌫️</div>
+                    <div class="import-icon"><span class="ui-icon" data-icon="cloud-fog" data-icon-class="icon-lg"
+                            aria-hidden="true"></span></div>
                     <p><strong>Fog of World</strong></p>
                     <p>Drag & drop or click to browse</p>
                 </label>
                 <div id="fogBadge" class="fog-badge" style="display: none;">
                     <label class="fog-badge-label">
                         <input type="checkbox" id="fogVisibilityToggle" checked />
-                        🌫️ Fog of World layer
+                        <span class="ui-icon" data-icon="cloud-fog" data-icon-class="icon-sm" aria-hidden="true"></span>
+                        Fog of World layer
                     </label>
                     <button type="button" id="fogRemoveBtn" class="btn-small btn-secondary"
-                        aria-label="Remove Fog of World layer">✕ Remove</button>
+                        aria-label="Remove Fog of World layer"><span class="icon-label"><span class="ui-icon"
+                                data-icon="x" data-icon-class="icon-sm" aria-hidden="true"></span>
+                            Remove</span></button>
                 </div>
             </section>
 
             <hr />
 
-            <section aria-labelledby="routes-heading">
+            <section class="routes-section" aria-labelledby="routes-heading">
+                <div class="routes-toolbar">
+                    <h2 id="routes-heading" class="section-heading">Routes</h2>
+                    <div class="unit-control" aria-label="Distance display unit">
+                        <span>Distance</span>
+                        <div class="unit-toggle" role="radiogroup" aria-label="Distance unit">
+                            <button type="button" id="unitKm" class="active" role="radio" aria-checked="true"
+                                title="Show distances in kilometers">km</button>
+                            <button type="button" id="unitMi" role="radio" aria-checked="false"
+                                title="Show distances in miles">mi</button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="bulk-actions">
                     <button class="btn-outline" id="downloadAllBtn" disabled aria-label="Download all routes as ZIP"
                         title="Download all routes bundled in a ZIP file">
-                        📥 Download All (ZIP)
+                        <span class="icon-label"><span class="ui-icon" data-icon="archive" data-icon-class="icon-sm"
+                                aria-hidden="true"></span> Download All (ZIP)</span>
                     </button>
                     <button class="btn-secondary" id="clearAllBtn" disabled aria-label="Remove all routes from the map"
                         title="Remove all routes from the map and storage">
-                        🗑️ Clear All
+                        <span class="icon-label"><span class="ui-icon" data-icon="trash-2" data-icon-class="icon-sm"
+                                aria-hidden="true"></span> Clear All</span>
                     </button>
                 </div>
 
-                <h2 id="routes-heading" class="sr-only">Saved Routes</h2>
                 <div class="routes-list" id="routesList" role="list" aria-label="List of routes"></div>
             </section>
 
@@ -1658,15 +1829,15 @@
             <div class="map-controls">
                 <button type="button" id="apiKeyMapBtn" class="btn-icon api-key-btn" aria-label="API Key settings"
                     title="Google Routes API Key - Click to configure">
-                    🔑
+                    <span class="ui-icon" data-icon="key-round" aria-hidden="true"></span>
                 </button>
                 <button type="button" id="clickModeBtn" class="btn-icon" aria-label="Start guided map picker"
                     aria-pressed="false" title="Guided map picker: set origin, destination, then waypoints">
-                    ⌖
+                    <span class="ui-icon" data-icon="crosshair" aria-hidden="true"></span>
                 </button>
                 <button type="button" class="btn-icon" id="locateMeBtn" aria-label="Center map on my location"
                     title="Center the map on your current GPS location">
-                    🎯
+                    <span class="ui-icon" data-icon="target" aria-hidden="true"></span>
                 </button>
             </div>
 
@@ -1674,7 +1845,7 @@
                 <span id="clickModeTarget">Click the map to set origin</span>
                 <button type="button" id="cancelClickModeBtn" aria-label="Cancel map picking"
                     title="Cancel map picking">
-                    ×
+                    <span class="ui-icon" data-icon="x" data-icon-class="icon-sm" aria-hidden="true"></span>
                 </button>
             </div>
         </div>
@@ -1689,7 +1860,8 @@
     <div class="modal-overlay" id="apiKeyModal" role="dialog" aria-modal="true" aria-labelledby="modal-title"
         tabindex="-1">
         <div class="modal">
-            <h2 id="modal-title">🔑 API Key Required</h2>
+            <h2 id="modal-title"><span class="ui-icon" data-icon="key-round" data-icon-class="icon-lg"
+                    aria-hidden="true"></span> API Key Required</h2>
 
             <p>
                 To calculate routes, you need a <strong>Google Routes API key</strong>.
@@ -1697,7 +1869,8 @@
             </p>
 
             <div class="privacy-note">
-                <strong>🔒 100% Private & Secure</strong><br>
+                <strong><span class="icon-label"><span class="ui-icon" data-icon="lock" data-icon-class="icon-sm"
+                            aria-hidden="true"></span> 100% Private & Secure</span></strong><br>
                 This app runs entirely in your browser — there is no route server. Your API key is sent directly to
                 Google. Use a website-restricted key limited to the Routes API.
             </div>
@@ -1725,7 +1898,8 @@
 
             <a href="https://developers.google.com/maps/documentation/routes/get-api-key" target="_blank"
                 rel="noopener noreferrer" class="help-link">
-                📖 Step-by-step guide: Get a Google Routes API key →
+                <span class="icon-label"><span class="ui-icon" data-icon="info" data-icon-class="icon-sm"
+                        aria-hidden="true"></span> Step-by-step guide: Get a Google Routes API key</span>
             </a>
         </div>
     </div>
@@ -1734,7 +1908,8 @@
     <div class="modal-overlay" id="filenameModal" role="dialog" aria-modal="true" aria-labelledby="filename-modal-title"
         tabindex="-1">
         <div class="modal">
-            <h2 id="filename-modal-title">💾 Save GPX File</h2>
+            <h2 id="filename-modal-title"><span class="ui-icon" data-icon="save" data-icon-class="icon-lg"
+                    aria-hidden="true"></span> Save GPX File</h2>
             <div class="form-group">
                 <label for="filenameInput">Filename</label>
                 <input type="text" id="filenameInput" placeholder="route.gpx" autocomplete="off" style="width: 100%;" />
