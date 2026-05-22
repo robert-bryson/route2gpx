@@ -371,10 +371,10 @@ function toggleFogVisibility() {
 function updateFogControls() {
     const badge = document.getElementById('fogBadge');
     if (currentFogMap) {
-        badge.style.display = 'flex';
+        badge.hidden = false;
         document.getElementById('fogVisibilityToggle').checked = currentFogLayer && map.hasLayer(currentFogLayer);
     } else {
-        badge.style.display = 'none';
+        badge.hidden = true;
     }
 }
 
@@ -464,3 +464,37 @@ function setupFogOfWorld() {
 
     updateFogControls();
 }
+
+Object.assign(globalThis, {
+    FowBlock,
+    FowTile,
+    FogMap,
+    parseFogOfWorldZip,
+    createFogCanvasLayer,
+    renderFowTileOnCanvas,
+    renderBlockOnCanvas,
+    addFogOfWorldLayer,
+    removeFogOfWorldLayer,
+    toggleFogVisibility,
+    updateFogControls,
+    handleFogOfWorldFile,
+    isFogOfWorldZip,
+    setupFogOfWorld,
+});
+
+export {
+    FowBlock,
+    FowTile,
+    FogMap,
+    parseFogOfWorldZip,
+    createFogCanvasLayer,
+    renderFowTileOnCanvas,
+    renderBlockOnCanvas,
+    addFogOfWorldLayer,
+    removeFogOfWorldLayer,
+    toggleFogVisibility,
+    updateFogControls,
+    handleFogOfWorldFile,
+    isFogOfWorldZip,
+    setupFogOfWorld,
+};

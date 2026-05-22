@@ -2,21 +2,17 @@
  * Tests for pure utility functions in app.js.
  *
  * Strategy: Vitest runs with jsdom environment. We mock Leaflet and build
- * the minimal DOM structure that app.js expects at load time, then load
- * app.js via indirect eval so all function declarations land on globalThis.
+ * the minimal DOM structure that app.js expects at load time, then import
+ * app.js as an ES module. app.js exposes a compatibility surface on globalThis
+ * while the source migration continues.
  */
 
 import { describe, test, expect, vi, beforeAll } from 'vitest';
-import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const mapEventHandlers = {};
 const popupInstances = [];
 
 // ---- Setup before loading app.js ----
-beforeAll(() => {
+beforeAll(async () => {
   // Mock localStorage
   const store = {};
   Object.defineProperty(globalThis, 'localStorage', {
@@ -176,17 +172,7 @@ beforeAll(() => {
   globalThis.JSZip = vi.fn();
   globalThis.JSZip.loadAsync = vi.fn(() => Promise.resolve({ files: {} }));
 
-  // Load fog.js into global scope (must be before app.js since app.js calls setupFogOfWorld)
-  const fogCode = readFileSync(resolve(__dirname, '..', 'fog.js'), 'utf-8');
-  (0, eval)(fogCode);
-
-  // Load icon helpers before app.js since app.js renders route icons.
-  const iconCode = readFileSync(resolve(__dirname, '..', 'icons.js'), 'utf-8');
-  (0, eval)(iconCode);
-
-  // Load app.js into global scope via indirect eval
-  const code = readFileSync(resolve(__dirname, '..', 'app.js'), 'utf-8');
-  (0, eval)(code);
+  await import('../app.js?app-test');
 });
 
 // ============ decodePolyline ============
@@ -339,6 +325,11 @@ describe('escapeHtml', () => {
     expect(result).toContain('&lt;');
   });
 
+  test('escapes quotes for safe attribute interpolation', () => {
+    expect(globalThis.escapeHtml('bad" onfocus="alert(1)')).toBe('bad&quot; onfocus=&quot;alert(1)');
+    expect(globalThis.escapeHtml("bad' onclick='alert(1)")).toBe('bad&#39; onclick=&#39;alert(1)');
+  });
+
   test('passes through plain text', () => {
     expect(globalThis.escapeHtml('hello world')).toBe('hello world');
   });
@@ -361,6 +352,11 @@ describe('truncate', () => {
   test('handles exact length', () => {
     expect(globalThis.truncate('hello', 5)).toBe('hello');
   });
+
+  test('handles nullish values', () => {
+    expect(globalThis.truncate(null, 5)).toBe('');
+    expect(globalThis.truncate(undefined, 5)).toBe('');
+  });
 });
 
 // ============ formatFileSize ============
@@ -379,6 +375,13 @@ describe('formatFileSize', () => {
 
   test('formats zero', () => {
     expect(globalThis.formatFileSize(0)).toBe('0 B');
+  });
+});
+
+describe('formatDistance invalid values', () => {
+  test('returns an unavailable marker for invalid distances', () => {
+    expect(globalThis.formatDistance(Number.NaN)).toBe('—');
+    expect(globalThis.formatDistance(-1)).toBe('—');
   });
 });
 
@@ -565,7 +568,7 @@ describe('map click picker', () => {
     globalThis.__mapEventHandlers.click({ latlng: { lat: 40.1234567, lng: -73.9876543 } });
 
     expect(document.getElementById('origin').value).toBe('40.123457, -73.987654');
-    expect(document.getElementById('mapModeIndicator').style.display).toBe('none');
+    expect(document.getElementById('mapModeIndicator').hidden).toBe(true);
     expect(document.getElementById('clickModeBtn').getAttribute('aria-pressed')).toBe('false');
   });
 
@@ -578,7 +581,7 @@ describe('map click picker', () => {
     globalThis.__mapEventHandlers.click({ latlng: { lat: 40, lng: -74 } });
 
     expect(document.getElementById('origin').value).toBe('40.000000, -74.000000');
-    expect(document.getElementById('mapModeIndicator').style.display).toBe('flex');
+  expect(document.getElementById('mapModeIndicator').hidden).toBe(false);
     expect(document.getElementById('clickModeTarget').textContent).toContain('destination');
 
     globalThis.__mapEventHandlers.click({ latlng: { lat: 41, lng: -75 } });
@@ -612,6 +615,11 @@ describe('geolocation', () => {
     callbacks[1]({ coords: { latitude: 30, longitude: 40 } });
     expect(document.getElementById('origin').value).toBe('');
     expect(document.getElementById('destination').value).toBe('30.000000, 40.000000');
+  });
+
+  test('rejects malformed geolocation coordinates', () => {
+    expect(globalThis.getValidatedPositionLatLng({ coords: { latitude: 91, longitude: 0 } })).toBeNull();
+    expect(globalThis.getValidatedPositionLatLng({ coords: { latitude: 45, longitude: -120 } })).toEqual({ latitude: 45, longitude: -120 });
   });
 });
 
@@ -775,6 +783,46 @@ describe('storage handling', () => {
       globalThis.saveToStorage();
     }
   });
+
+  test('skips invalid restored routes instead of poisoning later storage restores', () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => { });
+    globalThis.routes = [];
+
+    try {
+      expect(globalThis.restoreRoute({ name: 'Bad route', coordinates: [[95, 0], [40, -74]] })).toBe(false);
+      expect(globalThis.routes).toHaveLength(0);
+      expect(consoleWarn).toHaveBeenCalledWith('Skipping saved route with invalid coordinates');
+    } finally {
+      consoleWarn.mockRestore();
+    }
+  });
+
+  test('restores valid routes with safe palette classes and no inline route styles', () => {
+    globalThis.routes = [];
+
+    const restored = globalThis.restoreRoute({
+      id: 123,
+      name: 'Quoted "Route"',
+      origin: 'A',
+      destination: 'B',
+      travelMode: 'DRIVE',
+      color: '#ff4757',
+      coordinates: [[40, -74], [41, -75]],
+      distance: 1000,
+      duration: '600s',
+    });
+
+    expect(restored).toBe(true);
+    expect(globalThis.routes).toHaveLength(1);
+    const routeItem = document.querySelector('.route-item');
+    expect(routeItem.classList.contains('route-color-0')).toBe(true);
+    expect(routeItem.hasAttribute('style')).toBe(false);
+    expect(routeItem.querySelector('.route-number').hasAttribute('style')).toBe(false);
+    expect(routeItem.getAttribute('aria-label')).toContain('Quoted "Route"');
+
+    globalThis.routes = [];
+    document.getElementById('routesList').innerHTML = '';
+  });
 });
 
 // ============ API key storage ==========
@@ -926,7 +974,7 @@ describe('color palette', () => {
     globalThis.selectColor(2);
 
     expect(document.getElementById('routeColor').value).toBe('#1e90ff');
-    expect(document.getElementById('colorSwatch').style.getPropertyValue('--selected-route-color')).toBe('#1e90ff');
+    expect(document.getElementById('colorSwatch').classList.contains('route-color-2')).toBe(true);
     expect(document.querySelector('[data-color-index="2"]').getAttribute('aria-checked')).toBe('true');
     expect(document.querySelector('[data-color-index="2"]').tabIndex).toBe(0);
     expect(document.querySelector('[data-color-index="0"]').getAttribute('aria-checked')).toBe('false');

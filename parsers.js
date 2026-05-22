@@ -5,12 +5,17 @@
 const SEMICIRCLE_TO_DEG = 180 / Math.pow(2, 31);
 const FIT_EPOCH_OFFSET = 631065600; // seconds between Unix epoch (1970) and FIT epoch (1989-12-31)
 
+function isValidLatitudeLongitude(lat, lng) {
+    return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
 function parseFIT(buffer) {
+    if (!buffer || buffer.byteLength < 12) throw new Error('Invalid FIT header');
     const view = new DataView(buffer);
 
     // Parse header (12 or 14 bytes)
     const headerSize = view.getUint8(0);
-    if (headerSize < 12) throw new Error('Invalid FIT header');
+    if (headerSize < 12 || headerSize > buffer.byteLength) throw new Error('Invalid FIT header');
 
     const dataSize = view.getUint32(4, true);
     const magic = String.fromCharCode(
@@ -19,7 +24,7 @@ function parseFIT(buffer) {
     if (magic !== '.FIT') throw new Error('Not a valid FIT file');
 
     let offset = headerSize;
-    const dataEnd = headerSize + dataSize;
+    const dataEnd = Math.min(headerSize + dataSize, buffer.byteLength);
     const definitions = {};
     const records = [];
 
@@ -153,8 +158,7 @@ function extractGPSPoint(data) {
     const lat = latRaw * SEMICIRCLE_TO_DEG;
     const lng = lngRaw * SEMICIRCLE_TO_DEG;
 
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    if (!isValidLatitudeLongitude(lat, lng)) return null;
 
     let elevation = null;
     if (data[78] != null && data[78] !== 0xFFFFFFFF) {
@@ -190,14 +194,15 @@ function parseTCX(xmlString) {
         const lngEl = pos.querySelector('LongitudeDegrees');
         if (!latEl || !lngEl) return;
 
-        const lat = parseFloat(latEl.textContent);
-        const lng = parseFloat(lngEl.textContent);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        const lat = Number(latEl.textContent);
+        const lng = Number(lngEl.textContent);
+        if (!isValidLatitudeLongitude(lat, lng)) return;
 
         coordinates.push([lat, lng]);
 
         const altEl = tp.querySelector('AltitudeMeters');
-        elevations.push(altEl ? parseFloat(altEl.textContent) : null);
+        const elevation = altEl ? Number(altEl.textContent) : null;
+        elevations.push(Number.isFinite(elevation) ? elevation : null);
     });
 
     if (coordinates.length === 0) throw new Error('No valid trackpoints found in TCX file');
@@ -221,7 +226,8 @@ function parseGeoJSON(jsonString) {
     const elevations = [];
 
     function extractCoord(coord) {
-        if (typeof coord[0] === 'number' && typeof coord[1] === 'number') {
+        if (Array.isArray(coord) && typeof coord[0] === 'number' && typeof coord[1] === 'number' &&
+            isValidLatitudeLongitude(coord[1], coord[0])) {
             coordinates.push([coord[1], coord[0]]); // GeoJSON is [lng, lat], we use [lat, lng]
             elevations.push(coord.length >= 3 && Number.isFinite(coord[2]) ? coord[2] : null);
         }
@@ -262,3 +268,21 @@ function parseGeoJSON(jsonString) {
 
     return { coordinates, elevations, name };
 }
+
+Object.assign(globalThis, {
+    parseFIT,
+    isValidLatitudeLongitude,
+    readFITFields,
+    extractGPSPoint,
+    parseTCX,
+    parseGeoJSON,
+});
+
+export {
+    parseFIT,
+    isValidLatitudeLongitude,
+    readFITFields,
+    extractGPSPoint,
+    parseTCX,
+    parseGeoJSON,
+};

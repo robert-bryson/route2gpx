@@ -66,3 +66,21 @@ function renderIconPlaceholders(root = document) {
         element.innerHTML = iconSvg(iconName, iconClass);
     });
 }
+
+Object.assign(globalThis, {
+    ICON_PATHS,
+    MODE_ICON_NAMES,
+    iconSvg,
+    getModeIconName,
+    getModeIconSvg,
+    renderIconPlaceholders,
+});
+
+export {
+    ICON_PATHS,
+    MODE_ICON_NAMES,
+    iconSvg,
+    getModeIconName,
+    getModeIconSvg,
+    renderIconPlaceholders,
+};

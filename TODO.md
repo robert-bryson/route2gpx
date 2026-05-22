@@ -5,8 +5,7 @@ Keep this list biased toward work that is still useful. Completed items are reta
 ## Current Priorities
 
 - [ ] Add browser-level smoke tests for CDN assets, map startup, imports, downloads, and the generated `dist/` bundle.
-- [ ] Move inline styles to a build-managed stylesheet so the CSP can drop `style-src 'unsafe-inline'`.
-- [ ] Split the large browser bundle source into smaller modules with explicit exports.
+- [ ] Continue splitting the `app.js` coordinator into route state, storage, API, map rendering, import, export, and modal modules.
 
 ## Planned Features
 
@@ -22,10 +21,15 @@ Keep this list biased toward work that is still useful. Completed items are reta
 - [ ] Add integration coverage for Google Routes API error bodies, rate limits, and network timeouts.
 - [ ] Add browser permission smoke coverage for geolocation success, denial, and stale callback handling.
 - [ ] Add visual/screenshot coverage for compact map controls, color palette, and mobile sidebar sizing.
-- [ ] Validate restored localStorage route payloads before creating Leaflet layers, so one corrupt saved route cannot block later saved routes.
 
 ## Completed
 
+- [x] Removed inline `style` attributes and palette-driven dynamic style attributes so the CSP no longer needs `style-src 'unsafe-inline'`.
+- [x] Restored localStorage route payloads are validated before Leaflet layers are created, so corrupt saved routes are skipped individually.
+- [x] Import parsers reject out-of-range coordinates and malformed elevation values before routes reach the map or GPX export.
+- [x] Route-list and waypoint HTML escaping now handles quoted attribute values safely.
+- [x] Browser source now builds through ES module imports/exports instead of manual JavaScript concatenation.
+- [x] Main CSS moved from inline HTML into a build-managed hashed stylesheet.
 - [x] API key storage defaults to current-tab session storage and falls back safely when persistent storage is blocked.
 - [x] Malformed route polylines are rejected before bogus map layers or GPX files are created.
 - [x] Elevation enrichment ignores malformed or extra API results instead of extending route elevation arrays.

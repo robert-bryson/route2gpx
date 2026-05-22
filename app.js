@@ -1,3 +1,7 @@
+import { parseFIT, parseTCX, parseGeoJSON } from './parsers.js';
+import { setupFogOfWorld } from './fog.js';
+import { iconSvg, getModeIconName, getModeIconSvg, renderIconPlaceholders } from './icons.js';
+
 // ============ State ============
 let routes = [];
 let clickMode = null; // null, 'origin', 'destination', 'waypoint'
@@ -96,6 +100,27 @@ function resetColorPool() {
     }
 }
 
+function normalizeFallbackIndex(fallbackIndex = 0) {
+    const numericIndex = Number.isInteger(fallbackIndex) ? fallbackIndex : 0;
+    return ((numericIndex % COLOR_PALETTE.length) + COLOR_PALETTE.length) % COLOR_PALETTE.length;
+}
+
+function getPaletteColorIndex(color, fallbackIndex = 0) {
+    const normalizedColor = typeof color === 'string' ? color.toLowerCase() : '';
+    const paletteIndex = COLOR_PALETTE.findIndex(paletteColor => paletteColor.toLowerCase() === normalizedColor);
+    return paletteIndex >= 0 ? paletteIndex : normalizeFallbackIndex(fallbackIndex);
+}
+
+function getRouteColorClass(color, fallbackIndex = 0) {
+    return `route-color-${getPaletteColorIndex(color, fallbackIndex)}`;
+}
+
+function setElementRouteColorClass(element, color, fallbackIndex = 0) {
+    if (!element) return;
+    COLOR_PALETTE.forEach((_, index) => element.classList.remove(`route-color-${index}`));
+    element.classList.add(getRouteColorClass(color, fallbackIndex));
+}
+
 // ============ Initialize Map ============
 const map = L.map('map', {
     center: [39.8283, -98.5795],
@@ -124,12 +149,14 @@ function loadFromStorage() {
         const savedRoutes = localStorage.getItem(ROUTES_STORAGE_KEY);
         if (savedRoutes) {
             const routeData = JSON.parse(savedRoutes);
+            if (!Array.isArray(routeData)) throw new Error('Saved routes payload is not an array');
+            let restoredCount = 0;
             routeData.forEach(data => {
-                restoreRoute(data);
+                if (restoreRoute(data)) restoredCount++;
             });
             updateBulkButtons();
-            if (routes.length > 0) {
-                showStatus(`Restored ${routes.length} route(s) from previous session`);
+            if (restoredCount > 0) {
+                showStatus(`Restored ${restoredCount} route(s) from previous session`);
             }
         }
     } catch (error) {
@@ -241,7 +268,7 @@ function createRoutePopup(route) {
                 <span>${getModeIconSvg(route.travelMode)} ${escapeHtml(route.travelMode.toLowerCase())}</span>
                 ${stopCount > 0 ? `<span>${iconSvg('map-pin', 'icon-sm')} ${stopCount} stop${stopCount > 1 ? 's' : ''}</span>` : ''}
             </div>
-            <div class="route-meta" style="border-top: 1px solid #eee; padding-top: 8px; margin-top: 4px;">
+            <div class="route-meta route-meta-border">
                 <span>${iconSvg('file-down', 'icon-sm')} ${fileSize}</span>
                 <span>${iconSvg('route', 'icon-sm')} ${pointCount.toLocaleString()} points</span>
             </div>
@@ -358,9 +385,13 @@ function bindRouteHoverEffects(route) {
 }
 
 function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    return String(text ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
 }
 
 const VALID_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
@@ -370,6 +401,10 @@ function sanitizeColor(color, fallbackIndex) {
     return DEFAULT_ROUTE_COLORS[fallbackIndex % DEFAULT_ROUTE_COLORS.length];
 }
 
+function normalizeRouteColor(color, fallbackIndex = 0) {
+    return COLOR_PALETTE[getPaletteColorIndex(sanitizeColor(color, fallbackIndex), fallbackIndex)];
+}
+
 function normalizeStops(stops) {
     if (!Array.isArray(stops)) return [];
     return stops
@@ -377,22 +412,92 @@ function normalizeStops(stops) {
         .filter(Boolean);
 }
 
+function normalizeCoordinate(coordinate) {
+    if (!Array.isArray(coordinate) || coordinate.length < 2) return null;
+    const latitude = Number(coordinate[0]);
+    const longitude = Number(coordinate[1]);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+    if (!isValidLatLng({ latitude, longitude })) return null;
+    return [latitude, longitude];
+}
+
+function normalizeCoordinates(coordinates) {
+    if (!Array.isArray(coordinates)) return [];
+    return coordinates.map(normalizeCoordinate).filter(Boolean);
+}
+
+function normalizeElevations(elevations, coordinateCount) {
+    if (!Array.isArray(elevations)) return null;
+    const normalized = Array.from({ length: coordinateCount }, (_, index) => {
+        const elevation = Number(elevations[index]);
+        return Number.isFinite(elevation) ? elevation : null;
+    });
+    return normalized.some(elevation => elevation !== null) ? normalized : null;
+}
+
+function fallbackCoordinateLabel(coordinate) {
+    return `${coordinate[0].toFixed(4)}, ${coordinate[1].toFixed(4)}`;
+}
+
+function calculateRouteDistance(coordinates) {
+    let distance = 0;
+    for (let index = 1; index < coordinates.length; index++) {
+        distance += haversineDistance(coordinates[index - 1], coordinates[index]);
+    }
+    return distance;
+}
+
+function normalizeStoredRoute(data) {
+    if (!data || typeof data !== 'object') return null;
+
+    const coordinates = normalizeCoordinates(data.coordinates);
+    if (coordinates.length < 2) return null;
+
+    const fallbackIndex = routes.length;
+    const id = Number(data.id);
+    const distance = Number(data.distance);
+    const name = typeof data.name === 'string' && data.name.trim() ? data.name.trim() : 'Saved route';
+    const origin = typeof data.origin === 'string' && data.origin.trim() ? data.origin.trim() : fallbackCoordinateLabel(coordinates[0]);
+    const destination = typeof data.destination === 'string' && data.destination.trim()
+        ? data.destination.trim()
+        : fallbackCoordinateLabel(coordinates[coordinates.length - 1]);
+    const travelMode = typeof data.travelMode === 'string' && data.travelMode.trim() ? data.travelMode.trim() : 'DRIVE';
+    const elevations = normalizeElevations(data.elevations, coordinates.length);
+
+    return {
+        id: Number.isFinite(id) ? id : Date.now() + fallbackIndex,
+        name,
+        origin,
+        destination,
+        stops: normalizeStops(data.stops),
+        travelMode,
+        color: normalizeRouteColor(data.color, fallbackIndex),
+        coordinates,
+        elevations,
+        distance: Number.isFinite(distance) && distance >= 0 ? distance : Math.round(calculateRouteDistance(coordinates)),
+        duration: typeof data.duration === 'string' ? data.duration : null,
+        visible: data.visible !== false,
+        elevationStatus: elevations ? 'ready' : null,
+    };
+}
+
 function restoreRoute(data) {
-    if (!Number.isFinite(data.id)) data.id = Date.now();
-    data.stops = normalizeStops(data.stops);
-    data.color = sanitizeColor(data.color, routes.length);
-    data.visible = data.visible !== false;
-    data.elevationStatus = data.elevations && data.elevations.some(elevation => elevation !== null) ? 'ready' : null;
-    const polylineLayer = L.polyline(data.coordinates, {
-        color: data.color,
+    const restoredData = normalizeStoredRoute(data);
+    if (!restoredData) {
+        console.warn('Skipping saved route with invalid coordinates');
+        return false;
+    }
+
+    const polylineLayer = L.polyline(restoredData.coordinates, {
+        color: restoredData.color,
         weight: ROUTE_LINE_WEIGHT,
         opacity: ROUTE_LINE_OPACITY
     }).addTo(map);
 
-    const markers = createRouteMarkers(data.coordinates, data.color);
+    const markers = createRouteMarkers(restoredData.coordinates, restoredData.color);
 
     const route = {
-        ...data,
+        ...restoredData,
         polylineLayer,
         markers
     };
@@ -409,6 +514,7 @@ function restoreRoute(data) {
     updateRouteMapStyles();
 
     renderRoutesList();
+    return true;
 }
 
 // ============ Custom Markers ============
@@ -424,10 +530,9 @@ function getRouteLineStyle(route) {
 }
 
 function createEndpointDotIcon(color) {
-    const safeColor = VALID_COLOR_RE.test(color) ? color : '#4285F4';
     const dotSize = OLDER_ROUTE_ENDPOINT_DOT_SIZE;
     return L.divIcon({
-        html: `<div class="marker-dot" style="background: ${safeColor}"></div>`,
+        html: `<div class="marker-dot ${getRouteColorClass(color)}"></div>`,
         className: 'custom-marker endpoint-dot-marker',
         iconSize: [dotSize, dotSize],
         iconAnchor: [dotSize / 2, dotSize / 2]
@@ -451,14 +556,14 @@ function updateRouteMapStyles() {
 }
 
 function createMarkerIcon(type, color, number = null) {
-    const safeColor = VALID_COLOR_RE.test(color) ? color : '#4285F4';
+    const colorClass = getRouteColorClass(color);
     let html = '';
     if (type === 'start') {
-        html = `<div class="marker-icon" style="background: ${safeColor}"><span>A</span></div>`;
+        html = `<div class="marker-icon ${colorClass}"><span>A</span></div>`;
     } else if (type === 'end') {
-        html = `<div class="marker-icon" style="background: ${safeColor}"><span>B</span></div>`;
+        html = `<div class="marker-icon ${colorClass}"><span>B</span></div>`;
     } else if (type === 'waypoint') {
-        html = `<div class="marker-number" style="background: ${safeColor}">${number}</div>`;
+        html = `<div class="marker-number ${colorClass}">${escapeHtml(number)}</div>`;
     }
 
     return L.divIcon({
@@ -593,7 +698,7 @@ function updateClickModeUi() {
     btn.setAttribute('aria-label', isPicking ? 'Cancel map picking' : 'Start guided map picker');
     btn.title = isPicking ? 'Cancel map picking' : 'Guided map picker: set origin, destination, then waypoints';
 
-    indicator.style.display = isPicking ? 'flex' : 'none';
+    indicator.hidden = !isPicking;
     if (isPicking) {
         targetSpan.textContent = CLICK_MODE_COPY[clickMode]?.indicator || 'Click the map to set a point';
     }
@@ -970,6 +1075,15 @@ document.getElementById('apiKeyInput').addEventListener('keydown', function (e) 
 });
 
 // ============ Geolocation ============
+function getValidatedPositionLatLng(position) {
+    const latitude = Number(position?.coords?.latitude);
+    const longitude = Number(position?.coords?.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !isValidLatLng({ latitude, longitude })) {
+        return null;
+    }
+    return { latitude, longitude };
+}
+
 function locateMe() {
     if (!navigator.geolocation) {
         showStatus('Geolocation is not supported by your browser', true);
@@ -981,7 +1095,12 @@ function locateMe() {
     navigator.geolocation.getCurrentPosition(
         (position) => {
             if (requestId !== geolocationRequestId) return;
-            const { latitude, longitude } = position.coords;
+            const latLng = getValidatedPositionLatLng(position);
+            if (!latLng) {
+                showStatus('Unable to use the reported location coordinates', true);
+                return;
+            }
+            const { latitude, longitude } = latLng;
             map.setView([latitude, longitude], 14);
             showStatus('Centered on your location');
         },
@@ -1004,7 +1123,12 @@ function useMyLocation(field) {
     navigator.geolocation.getCurrentPosition(
         (position) => {
             if (requestId !== geolocationRequestId) return;
-            const { latitude, longitude } = position.coords;
+            const latLngPosition = getValidatedPositionLatLng(position);
+            if (!latLngPosition) {
+                showStatus('Unable to use the reported location coordinates', true);
+                return;
+            }
+            const { latitude, longitude } = latLngPosition;
             const latLng = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
             const input = document.getElementById(field);
             input.value = latLng;
@@ -1222,9 +1346,9 @@ function showStatus(message, isError = false) {
     clearTimeout(statusTimer);
     status.textContent = message;
     status.className = 'status ' + (isError ? 'error' : 'success');
-    status.style.display = 'block';
+    status.hidden = false;
 
-    statusTimer = setTimeout(() => { status.style.display = 'none'; }, isError ? 9000 : 4000);
+    statusTimer = setTimeout(() => { status.hidden = true; }, isError ? 9000 : 4000);
 }
 
 // ============ Location Parsing ============
@@ -1412,8 +1536,9 @@ async function getRoute() {
     // Ensure we have a valid color
     if (!color || color === '') {
         color = COLOR_PALETTE[selectedColorIndex] || COLOR_PALETTE[0];
-        document.getElementById('routeColor').value = color;
     }
+    color = normalizeRouteColor(color, selectedColorIndex >= 0 ? selectedColorIndex : routes.length);
+    document.getElementById('routeColor').value = color;
     const stops = getStops();
 
     // Validation
@@ -1571,10 +1696,12 @@ async function getRoute() {
 
 // ============ Formatting Helpers ============
 function truncate(str, len) {
-    return str.length > len ? str.substring(0, len) + '...' : str;
+    const value = String(str ?? '');
+    return value.length > len ? value.substring(0, len) + '...' : value;
 }
 
 function formatDistance(meters) {
+    if (!Number.isFinite(meters) || meters < 0) return '—';
     if (distanceUnit === 'mi') {
         const miles = meters / 1609.34;
         return miles >= 10 ? miles.toFixed(0) + ' mi' : miles.toFixed(1) + ' mi';
@@ -1596,7 +1723,7 @@ function formatDuration(durationStr) {
 }
 
 function escapeXml(text) {
-    return text
+    return String(text ?? '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
@@ -1614,24 +1741,24 @@ function renderRoutesList() {
 
     if (routes.length === 0) {
         list.innerHTML = `
-            <div style="color: #b7c3dc; text-align: center; padding: 20px;">
-                <div style="margin-bottom: 6px;">${iconSvg('map', 'empty-state-icon')}</div>
-                <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px;">No routes yet</div>
-                <div style="font-size: 0.75rem; color: #a9b6d3;">Enter an origin and destination, then press Enter</div>
+            <div class="routes-empty-state">
+                <div class="routes-empty-state-icon">${iconSvg('map', 'empty-state-icon')}</div>
+                <div class="routes-empty-state-title">No routes yet</div>
+                <div class="routes-empty-state-copy">Enter an origin and destination, then press Enter</div>
             </div>
         `;
         return;
     }
 
     list.innerHTML = routes.map((route, idx) => `
-        <div class="route-item" style="border-left-color: ${route.color};" role="listitem"
+        <div class="route-item ${getRouteColorClass(route.color, idx)}" role="listitem"
              data-route-id="${route.id}"
              tabindex="0"
              aria-label="Route ${idx + 1}: ${escapeHtml(route.name)}. Press Enter to zoom and view details.">
             <div class="route-item-header">
                 <div>
                     <div class="route-title-row">
-                    <span class="route-number" style="background: ${route.color};" aria-hidden="true">${idx + 1}</span>
+                    <span class="route-number" aria-hidden="true">${idx + 1}</span>
                     <div class="route-item-title">${escapeHtml(route.name)}</div>
                     </div>
                     <div class="route-item-meta">
@@ -2141,7 +2268,7 @@ async function handleSingleImportFile(file) {
     }
 
     const routeName = result.name || baseName;
-    const elevations = result.elevations.some(e => e !== null) ? result.elevations : null;
+    const elevations = normalizeElevations(result.elevations, result.coordinates.length);
     addImportedRoute(routeName, result.coordinates, elevations);
 }
 
@@ -2170,12 +2297,13 @@ function importFromPoints(pointElements, doc, filename) {
     const elevations = [];
 
     pointElements.forEach(pt => {
-        const lat = parseFloat(pt.getAttribute('lat'));
-        const lng = parseFloat(pt.getAttribute('lon'));
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        const lat = Number(pt.getAttribute('lat'));
+        const lng = Number(pt.getAttribute('lon'));
+        if (Number.isFinite(lat) && Number.isFinite(lng) && isValidLatLng({ latitude: lat, longitude: lng })) {
             coordinates.push([lat, lng]);
             const eleEl = pt.querySelector('ele');
-            elevations.push(eleEl ? parseFloat(eleEl.textContent) : null);
+            const elevation = eleEl ? Number(eleEl.textContent) : null;
+            elevations.push(Number.isFinite(elevation) ? elevation : null);
         }
     });
 
@@ -2205,10 +2333,10 @@ function importKML(xmlString, filename) {
     coordsEl.textContent.trim().split(/\s+/).forEach(triplet => {
         const parts = triplet.split(',');
         if (parts.length >= 2) {
-            const lng = parseFloat(parts[0]);
-            const lat = parseFloat(parts[1]);
-            const ele = parts.length >= 3 ? parseFloat(parts[2]) : null;
-            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            const lng = Number(parts[0]);
+            const lat = Number(parts[1]);
+            const ele = parts.length >= 3 ? Number(parts[2]) : null;
+            if (Number.isFinite(lat) && Number.isFinite(lng) && isValidLatLng({ latitude: lat, longitude: lng })) {
                 coordinates.push([lat, lng]);
                 elevations.push(Number.isFinite(ele) ? ele : null);
             }
@@ -2224,6 +2352,9 @@ function importKML(xmlString, filename) {
 }
 
 function addImportedRoute(name, coordinates, elevations) {
+    const safeCoordinates = normalizeCoordinates(coordinates);
+    if (safeCoordinates.length === 0) throw new Error('No valid coordinates found');
+
     // Pick a color
     if (availableColorIndices.length === 0) resetColorPool();
     if (availableColorIndices.length === 0) availableColorIndices = COLOR_PALETTE.map((_, i) => i);
@@ -2232,32 +2363,28 @@ function addImportedRoute(name, coordinates, elevations) {
     const color = COLOR_PALETTE[colorIndex];
 
     const routeId = Date.now() + Math.floor(Math.random() * 1000);
+    const safeElevations = normalizeElevations(elevations, safeCoordinates.length);
+    const distance = calculateRouteDistance(safeCoordinates);
 
-    // Calculate distance from coordinates
-    let distance = 0;
-    for (let i = 1; i < coordinates.length; i++) {
-        distance += haversineDistance(coordinates[i - 1], coordinates[i]);
-    }
-
-    const polylineLayer = L.polyline(coordinates, {
+    const polylineLayer = L.polyline(safeCoordinates, {
         color: color,
         weight: ROUTE_LINE_WEIGHT,
         opacity: ROUTE_LINE_OPACITY
     }).addTo(map);
 
-    const markers = createRouteMarkers(coordinates, color);
+    const markers = createRouteMarkers(safeCoordinates, color);
 
-    const hasElevation = elevations && elevations.some(e => e !== null);
+    const hasElevation = safeElevations && safeElevations.some(e => e !== null);
     const route = {
         id: routeId,
-        name: name,
-        origin: `${coordinates[0][0].toFixed(4)}, ${coordinates[0][1].toFixed(4)}`,
-        destination: `${coordinates[coordinates.length - 1][0].toFixed(4)}, ${coordinates[coordinates.length - 1][1].toFixed(4)}`,
+        name: typeof name === 'string' && name.trim() ? name.trim() : 'Imported route',
+        origin: fallbackCoordinateLabel(safeCoordinates[0]),
+        destination: fallbackCoordinateLabel(safeCoordinates[safeCoordinates.length - 1]),
         stops: [],
         travelMode: 'IMPORTED',
         color: color,
-        coordinates: coordinates,
-        elevations: hasElevation ? elevations : null,
+        coordinates: safeCoordinates,
+        elevations: hasElevation ? safeElevations : null,
         polylineLayer: polylineLayer,
         markers: markers,
         distance: Math.round(distance),
@@ -2276,7 +2403,7 @@ function addImportedRoute(name, coordinates, elevations) {
     renderRoutesList();
     updateBulkButtons();
     saveToStorage();
-    showStatus(`Imported: ${name} (${coordinates.length} points, ${formatDistance(distance)})`);
+    showStatus(`Imported: ${route.name} (${safeCoordinates.length} points, ${formatDistance(distance)})`);
 }
 
 function haversineDistance([lat1, lon1], [lat2, lon2]) {
@@ -2378,8 +2505,7 @@ function getColorOptionButtons() {
 function initColorPresets() {
     const container = document.getElementById('colorOptions');
     container.innerHTML = COLOR_PALETTE.map((color, idx) => `
-        <button type="button" class="color-option ${idx === selectedColorIndex ? 'selected' : ''}"
-                style="--route-color: ${color}"
+    <button type="button" class="color-option route-color-${idx} ${idx === selectedColorIndex ? 'selected' : ''}"
                 data-action="select-color" data-color-index="${idx}"
                 role="radio"
                 aria-checked="${idx === selectedColorIndex}"
@@ -2402,7 +2528,7 @@ function updateColorSelectionUi(focusSelected = false) {
     document.getElementById('routeColor').value = color;
 
     if (swatch) {
-        swatch.style.setProperty('--selected-route-color', color);
+        setElementRouteColorClass(swatch, color, selectedColorIndex);
         swatch.setAttribute('aria-label', `${label} route color selected. Choose route color`);
         swatch.title = `${label} route color`;
     }
@@ -2673,7 +2799,87 @@ document.querySelectorAll('[data-map-pick-target]').forEach(btn => {
     });
 });
 
+function exposeAppCompatGlobals() {
+    Object.assign(globalThis, {
+        addStop,
+        assertFileSize,
+        buildRouteName,
+        closeApiKeyModal,
+        confirmMapClickPrompt,
+        decodePolyline,
+        detectImportFormat,
+        enterClickMode,
+        escapeHtml,
+        escapeXml,
+        exitClickMode,
+        fetchElevations,
+        formatDistance,
+        formatDuration,
+        formatFileSize,
+        generateGPX,
+        getApiKey,
+        getModeIconName,
+        getModeIconSvg,
+        getPaletteColorIndex,
+        getReverseGeocodeDisplayName,
+        getRouteColorClass,
+        getValidatedPositionLatLng,
+        getRoute,
+        getStops,
+        handleSingleImportFile,
+        haversineDistance,
+        iconSvg,
+        isValidLatLng,
+        looksLikeCoordinatePair,
+        moveEndpoint,
+        moveStop,
+        openApiKeyModal,
+        openFilenameModal,
+        parseGeoJSON,
+        parseFIT,
+        parseLocation,
+        parseTCX,
+        renderIconPlaceholders,
+        resetColorPool,
+        resolveRouteEndpointLabel,
+        restoreRoute,
+        sanitizeColor,
+        sanitizeFilename,
+        saveApiKey,
+        saveToStorage,
+        selectColor,
+        selectRandomColor,
+        selectTravelMode,
+        setUnit,
+        setupGlobalFileDropGuard,
+        showStatus,
+        truncate,
+        updateInputValidation,
+        useMyLocation,
+        ensureJSZip,
+        ensurePako,
+    });
+
+    Object.defineProperties(globalThis, {
+        distanceUnit: {
+            configurable: true,
+            get: () => distanceUnit,
+            set: value => { distanceUnit = value; },
+        },
+        routes: {
+            configurable: true,
+            get: () => routes,
+            set: value => { if (Array.isArray(value)) routes = value; },
+        },
+        map: {
+            configurable: true,
+            get: () => map,
+        },
+    });
+}
+
 // ============ Initialize ============
+exposeAppCompatGlobals();
 renderIconPlaceholders();
 setupTravelModeToggle();
 selectRandomColor(); // Pick initial random color
@@ -2684,3 +2890,53 @@ loadFromStorage();
 renderRoutesList();
 updateApiKeyStatus();
 checkApiKeyOnLoad();
+
+export {
+    addStop,
+    assertFileSize,
+    buildRouteName,
+    closeApiKeyModal,
+    confirmMapClickPrompt,
+    decodePolyline,
+    detectImportFormat,
+    enterClickMode,
+    escapeHtml,
+    escapeXml,
+    exitClickMode,
+    fetchElevations,
+    formatDistance,
+    formatDuration,
+    formatFileSize,
+    generateGPX,
+    getApiKey,
+    getReverseGeocodeDisplayName,
+    getRoute,
+    getPaletteColorIndex,
+    getRouteColorClass,
+    getValidatedPositionLatLng,
+    getStops,
+    handleSingleImportFile,
+    haversineDistance,
+    isValidLatLng,
+    looksLikeCoordinatePair,
+    moveEndpoint,
+    moveStop,
+    openApiKeyModal,
+    openFilenameModal,
+    parseLocation,
+    resetColorPool,
+    resolveRouteEndpointLabel,
+    restoreRoute,
+    sanitizeColor,
+    sanitizeFilename,
+    saveApiKey,
+    saveToStorage,
+    selectColor,
+    selectRandomColor,
+    selectTravelMode,
+    setUnit,
+    showStatus,
+    truncate,
+    updateInputValidation,
+    useMyLocation,
+};

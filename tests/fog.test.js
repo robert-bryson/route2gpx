@@ -1,16 +1,7 @@
 /** Tests for Fog of World import hardening. */
 
-import { describe, test, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
-import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-beforeAll(() => {
-  const fogCode = readFileSync(resolve(__dirname, '..', 'fog.js'), 'utf-8');
-  (0, eval)(fogCode);
-});
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import '../fog.js';
 
 beforeEach(() => {
   globalThis.showStatus = vi.fn();

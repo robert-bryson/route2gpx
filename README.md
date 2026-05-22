@@ -33,7 +33,7 @@ A browser app that keeps route planning state locally. Route requests go directl
 4. Press Enter or click "Get Route"
 5. Download your GPX file
 
-For safer browser use, create a dedicated Google API key for this app and restrict it to your website referrer. Restrict API access to the Routes API; also allow the Geocoding API if you want clicked/GPS coordinates to be labeled with human-readable place names. The web app keeps the key for the current tab by default; you can opt in to remembering it on this browser. If persistent browser storage is blocked, the app falls back to tab-only storage instead of losing the key silently. Imported GPS files are processed locally and capped by file and decompressed-size limits to protect the browser from very large uploads. If browser storage fills up, the app warns you instead of silently pretending the latest routes were saved.
+For safer browser use, create a dedicated Google API key for this app and restrict it to your website referrer. Restrict API access to the Routes API; also allow the Geocoding API if you want clicked/GPS coordinates to be labeled with human-readable place names. The web app keeps the key for the current tab by default; you can opt in to remembering it on this browser. If persistent browser storage is blocked, the app falls back to tab-only storage instead of losing the key silently. Imported GPS files are processed locally, capped by file and decompressed-size limits, and validated for coordinate bounds before rendering. Saved browser routes are also validated on restore so one corrupt route cannot block the rest of the session. If browser storage fills up, the app warns you instead of silently pretending the latest routes were saved.
 
 GPX exports include the route track plus exact start and end waypoints. Intermediate waypoints entered as coordinates are exported as GPX waypoints; address or place-name waypoints are kept in the route description because the app should not invent coordinates it does not actually know.
 
@@ -45,7 +45,7 @@ npm test
 npm run build
 ```
 
-Run `npm run build` after source changes before static preview or deployment; the build writes a hashed bundle into `dist/` and rewrites the script reference in the generated HTML.
+Run `npm run build` after source changes before static preview or deployment; the build follows the browser ES module graph from `app.js`, writes hashed JavaScript and CSS assets into `dist/`, and rewrites the generated HTML references. The CSP is declared in both `index.html` and the Amplify custom headers in `infra/main.tf`; keep those policies in sync when adding third-party assets.
 
 Production elevation lookup uses the Amplify rewrite from `/api/elevation/<path>` to Open-Topo-Data. A plain local file or static dev server does not provide that rewrite, so route calculation, imports, and GPX export work locally while elevation enrichment may show as unavailable unless you run a compatible local proxy.
 

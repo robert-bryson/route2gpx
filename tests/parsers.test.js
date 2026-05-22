@@ -6,17 +6,7 @@
  */
 
 import { describe, test, expect, vi, beforeAll } from 'vitest';
-import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-beforeAll(() => {
-    // Load parsers.js into global scope
-    const code = readFileSync(resolve(__dirname, '..', 'parsers.js'), 'utf-8');
-    (0, eval)(code);
-});
+import '../parsers.js';
 
 // ============ FIT Parser ============
 describe('parseFIT', () => {
@@ -140,6 +130,10 @@ describe('parseFIT', () => {
         expect(() => globalThis.parseFIT(buffer)).toThrow('Not a valid FIT file');
     });
 
+    test('throws a controlled error on truncated FIT buffers', () => {
+        expect(() => globalThis.parseFIT(new ArrayBuffer(4))).toThrow('Invalid FIT header');
+    });
+
     test('throws when no GPS data found', () => {
         // FIT with definition but no data records
         const buffer = buildFITFile([]);
@@ -231,6 +225,26 @@ describe('parseTCX', () => {
         expect(result.coordinates).toHaveLength(1);
     });
 
+        test('skips out-of-range coordinates and malformed elevations', () => {
+                const xml = `<?xml version="1.0" encoding="UTF-8"?>
+            <TrainingCenterDatabase>
+                <Activities><Activity><Lap><Track>
+                    <Trackpoint><Position>
+                        <LatitudeDegrees>120</LatitudeDegrees>
+                        <LongitudeDegrees>-74.0</LongitudeDegrees>
+                    </Position><AltitudeMeters>10</AltitudeMeters></Trackpoint>
+                    <Trackpoint><Position>
+                        <LatitudeDegrees>40.7</LatitudeDegrees>
+                        <LongitudeDegrees>-74.0</LongitudeDegrees>
+                    </Position><AltitudeMeters>not-a-number</AltitudeMeters></Trackpoint>
+                </Track></Lap></Activity></Activities>
+            </TrainingCenterDatabase>`;
+
+                const result = globalThis.parseTCX(xml);
+                expect(result.coordinates).toEqual([[40.7, -74.0]]);
+                expect(result.elevations).toEqual([null]);
+        });
+
     test('throws on empty TCX', () => {
         const xml = `<?xml version="1.0"?><TrainingCenterDatabase></TrainingCenterDatabase>`;
         expect(() => globalThis.parseTCX(xml)).toThrow('No valid trackpoints');
@@ -319,6 +333,21 @@ describe('parseGeoJSON', () => {
         expect(result.elevations).toEqual([null, null]);
     });
 
+    test('skips out-of-range GeoJSON positions', () => {
+        const json = JSON.stringify({
+            type: 'Feature',
+            properties: {},
+            geometry: {
+                type: 'LineString',
+                coordinates: [[-74.0, 40.7], [-200, 40.8], [-74.2, 95]]
+            }
+        });
+
+        const result = globalThis.parseGeoJSON(json);
+        expect(result.coordinates).toEqual([[40.7, -74.0]]);
+        expect(result.elevations).toEqual([null]);
+    });
+
     test('throws on empty coordinates', () => {
         const json = JSON.stringify({
             type: 'FeatureCollection',
@@ -335,7 +364,7 @@ describe('parseGeoJSON', () => {
 // ============ Format Detection (from app.js) ============
 describe('detectImportFormat', () => {
     // Load app.js minimally to get detectImportFormat
-    beforeAll(() => {
+    beforeAll(async () => {
         // Mock all the DOM and Leaflet dependencies
         const store = {};
         Object.defineProperty(globalThis, 'localStorage', {
@@ -419,14 +448,9 @@ describe('detectImportFormat', () => {
             });
         }
 
-        // Load fog.js and app.js if not already loaded
+        // Load app.js if not already loaded
         if (!globalThis.detectImportFormat) {
-            const fogCode = readFileSync(resolve(__dirname, '..', 'fog.js'), 'utf-8');
-            (0, eval)(fogCode);
-            const iconCode = readFileSync(resolve(__dirname, '..', 'icons.js'), 'utf-8');
-            (0, eval)(iconCode);
-            const appCode = readFileSync(resolve(__dirname, '..', 'app.js'), 'utf-8');
-            (0, eval)(appCode);
+            await import('../app.js?parsers-test');
         }
     });
 
