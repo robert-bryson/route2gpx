@@ -1,30 +1,29 @@
 #!/usr/bin/env python3
-"""
-Google Routes API to GPX Converter
-This script retrieves a route using the Google Routes API and exports it as a GPX file.
-"""
+"""Convert a Google Routes API route to a GPX file."""
 
 import argparse
 import os
 import re
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import polyline
 import requests
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-
-API_KEY = os.getenv("GOOGLE_ROUTES_API_KEY")
-if API_KEY is None:
-    raise ValueError("Google API key not found in .env file.")
+ENDPOINT = "https://routes.googleapis.com/directions/v2:computeRoutes"
+FIELD_MASK = "routes.polyline"
+REQUEST_TIMEOUT_SECONDS = 30
+VALID_MODES = ("DRIVE", "TRANSIT", "BICYCLE", "WALK")
 
 
-# Helper function to sanitize filenames
-def sanitize_filename(s):
-    return re.sub(r"[^a-zA-Z0-9_\-\s]", "_", s)
+class Route2GpxError(Exception):
+    """Raised when route conversion cannot continue."""
+
+
+def sanitize_filename(value):
+    return re.sub(r"[^a-zA-Z0-9_\-\s]", "_", value)
 
 
 def escape_xml(text):
@@ -38,93 +37,122 @@ def escape_xml(text):
     )
 
 
-# Command-line arguments
-parser = argparse.ArgumentParser(description="Compute route and export as GPX.")
-parser.add_argument("origin", help="Start location (address or lat,lng).")
-parser.add_argument("destination", help="End location (address or lat,lng).")
-parser.add_argument(
-    "mode", choices=["DRIVE", "TRANSIT", "BICYCLE", "WALK"], help="Travel mode."
-)
-args = parser.parse_args()
+def build_headers(api_key):
+    return {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": FIELD_MASK,
+    }
 
-# Google Routes API endpoint
-ENDPOINT = "https://routes.googleapis.com/directions/v2:computeRoutes"
 
-headers = {
-    "Content-Type": "application/json",
-    "X-Goog-Api-Key": API_KEY,
-    "X-Goog-FieldMask": "routes.polyline",
-}
+def build_payload(origin, destination, mode):
+    return {
+        "origin": {"address": origin},
+        "destination": {"address": destination},
+        "travelMode": mode,
+        "polylineQuality": "HIGH_QUALITY",
+    }
 
-# docs at https://developers.google.com/maps/documentation/routes/reference/rest/v2/TopLevel/computeRoutes#request-body
-payload = {
-    "origin": {"address": args.origin},
-    "destination": {"address": args.destination},
-    "travelMode": args.mode,
-    # "routeModifiers": {
-    #     "avoidHighways": True
-    # },
-    # "routingPreference": "TRAFFIC_AWARE",
-    "polylineQuality": "HIGH_QUALITY",
-}
 
-# Request route from Google Routes API
-response = requests.post(ENDPOINT, json=payload, headers=headers)
+def get_api_key():
+    api_key = os.getenv("GOOGLE_ROUTES_API_KEY")
+    if not api_key:
+        raise Route2GpxError("Google API key not found. Set GOOGLE_ROUTES_API_KEY.")
+    return api_key
 
-if response.status_code != 200:
-    print(f"API request failed: {response.text}")
-    sys.exit(1)
 
-data = response.json()
+def fetch_route_data(origin, destination, mode, api_key):
+    try:
+        response = requests.post(
+            ENDPOINT,
+            json=build_payload(origin, destination, mode),
+            headers=build_headers(api_key),
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as error:
+        raise Route2GpxError(f"API request failed: {error}") from error
 
-try:
-    encoded_polyline = data["routes"][0]["polyline"]["encodedPolyline"]
-except (KeyError, IndexError):
-    print("No route found or invalid response.")
-    sys.exit(1)
+    if response.status_code != 200:
+        raise Route2GpxError(f"API request failed: {response.text}")
 
-# Decode polyline into coordinates (lat, lng)
-coordinates = polyline.decode(encoded_polyline)
+    return response.json()
 
-# Sanitize input args for filename
-safe_origin = sanitize_filename(args.origin)
-safe_destination = sanitize_filename(args.destination)
-safe_mode = sanitize_filename(args.mode.lower())
 
-# Generate GPX content
-start_time = datetime.now(UTC)
+def extract_encoded_polyline(data):
+    try:
+        return data["routes"][0]["polyline"]["encodedPolyline"]
+    except (KeyError, IndexError, TypeError) as error:
+        raise Route2GpxError("No route found or invalid response.") from error
 
-gpx_lines = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<gpx version="1.1" creator="route2gpx">',
-    f"  <trk><name>Route: {escape_xml(args.origin)} to {escape_xml(args.destination)}</name>",
-    "    <trkseg>",
-]
 
-# Populate GPX points with dummy elevation and timestamps
-for idx, (lat, lon) in enumerate(coordinates):
-    point_time = (start_time + timedelta(seconds=idx * 60)).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
-    elevation = 0  # dummy elevation; can be modified
-    gpx_lines.extend(
-        [
-            f'      <trkpt lat="{lat:.6f}" lon="{lon:.6f}">',
-            f"        <ele>{elevation}</ele>",
-            f"        <time>{point_time}</time>",
-            "      </trkpt>",
-        ]
-    )
+def generate_gpx(origin, destination, coordinates, start_time=None):
+    if not coordinates:
+        raise Route2GpxError("No coordinates found in route polyline.")
 
-gpx_lines.extend(["    </trkseg>", "  </trk>", "</gpx>"])
+    start_time = start_time or datetime.now(UTC)
+    gpx_lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<gpx version="1.1" creator="route2gpx">',
+        f"  <trk><name>Route: {escape_xml(origin)} to {escape_xml(destination)}</name>",
+        "    <trkseg>",
+    ]
 
-gpx_content = "\n".join(gpx_lines)
+    for idx, (lat, lon) in enumerate(coordinates):
+        point_time = (start_time + timedelta(seconds=idx * 60)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        gpx_lines.extend(
+            [
+                f'      <trkpt lat="{lat:.6f}" lon="{lon:.6f}">',
+                "        <ele>0</ele>",
+                f"        <time>{point_time}</time>",
+                "      </trkpt>",
+            ]
+        )
 
-# Use sanitized filename
-output_file = f"{safe_mode}-route_{safe_origin}-{safe_destination}.gpx"
+    gpx_lines.extend(["    </trkseg>", "  </trk>", "</gpx>"])
+    return "\n".join(gpx_lines)
 
-# Write GPX to file
-with open(output_file, "w") as file:
-    file.write(gpx_content)
 
-print(f"GPX file '{output_file}' created successfully.")
+def build_output_filename(origin, destination, mode):
+    safe_origin = sanitize_filename(origin)
+    safe_destination = sanitize_filename(destination)
+    safe_mode = sanitize_filename(mode.lower())
+    return f"{safe_mode}-route_{safe_origin}-{safe_destination}.gpx"
+
+
+def convert_route(origin, destination, mode, output_dir=Path(".")):
+    api_key = get_api_key()
+    data = fetch_route_data(origin, destination, mode, api_key)
+    encoded_polyline = extract_encoded_polyline(data)
+    coordinates = polyline.decode(encoded_polyline)
+    gpx_content = generate_gpx(origin, destination, coordinates)
+    output_file = Path(output_dir) / build_output_filename(origin, destination, mode)
+    output_file.write_text(gpx_content, encoding="utf-8")
+    return output_file
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Compute route and export as GPX.")
+    parser.add_argument("origin", help="Start location (address or lat,lng).")
+    parser.add_argument("destination", help="End location (address or lat,lng).")
+    parser.add_argument("mode", choices=VALID_MODES, help="Travel mode.")
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    load_dotenv()
+    args = parse_args(argv)
+
+    try:
+        output_file = convert_route(args.origin, args.destination, args.mode)
+    except Route2GpxError as error:
+        print(error, file=sys.stderr)
+        return 1
+
+    print(f"GPX file '{output_file}' created successfully.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

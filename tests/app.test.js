@@ -12,6 +12,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const mapEventHandlers = {};
 
 // ---- Setup before loading app.js ----
 beforeAll(() => {
@@ -52,13 +53,20 @@ beforeAll(() => {
     _icon: null,
   };
 
+  globalThis.__mapEventHandlers = mapEventHandlers;
   globalThis.L = {
-    map: vi.fn(() => ({
-      fitBounds: vi.fn(),
-      closePopup: vi.fn(),
-      removeLayer: vi.fn(),
-      on: vi.fn(),
-    })),
+    map: vi.fn(() => {
+      const mapMock = {
+        fitBounds: vi.fn(),
+        closePopup: vi.fn(),
+        removeLayer: vi.fn(),
+        on: vi.fn((eventName, handler) => {
+          mapEventHandlers[eventName] = handler;
+          return mapMock;
+        }),
+      };
+      return mapMock;
+    }),
     tileLayer: vi.fn(() => ({ addTo: vi.fn() })),
     polyline: vi.fn(() => ({ ...mockPolyline })),
     marker: vi.fn(() => ({ ...mockMarker })),
@@ -69,10 +77,13 @@ beforeAll(() => {
 
   // Build minimal DOM with all the element IDs app.js expects
   const ids = [
+    'app',
     'map', 'origin', 'destination', 'routesList', 'addStopBtn', 'reverseRouteBtn',
     'colorSwatch', 'unitKm', 'unitMi', 'getRouteBtn', 'downloadAllBtn', 'clearAllBtn',
     'apiKeyMapBtn', 'clickModeBtn', 'locateMeBtn', 'closeModalBtn', 'saveApiKeyBtn',
-    'colorOptions', 'routeColor', 'colorDropdown', 'stopsContainer', 'apiKeyStatus',
+    'colorOptions', 'routeColor', 'colorDropdown', 'stopsContainer', 'apiKeyStatus', 'rememberApiKey',
+    'mapModeIndicator', 'clickModeTarget', 'cancelClickModeBtn', 'originMapPickBtn', 'destinationMapPickBtn',
+    'pickWaypointMapBtn',
     'apiKeyModal', 'apiKeyInput', 'status', 'travelMode',
     'filenameModal', 'filenameInput', 'filenamePreview', 'cancelFilenameBtn', 'confirmFilenameBtn',
     'importDropZone', 'importFileInput',
@@ -81,12 +92,15 @@ beforeAll(() => {
 
   ids.forEach(id => {
     const el = document.createElement(
-      ['origin', 'destination', 'apiKeyInput', 'routeColor', 'filenameInput'].includes(id) ? 'input' :
+      ['origin', 'destination', 'apiKeyInput', 'routeColor', 'filenameInput', 'rememberApiKey'].includes(id) ? 'input' :
         id === 'importFileInput' ? 'input' : 'div'
     );
     el.id = id;
     if (id === 'importFileInput') {
       el.type = 'file';
+    }
+    if (id === 'rememberApiKey') {
+      el.type = 'checkbox';
     }
     if (id === 'travelMode') {
       const select = document.createElement('select');
@@ -99,6 +113,13 @@ beforeAll(() => {
     }
     document.body.appendChild(el);
   });
+
+  document.getElementById('originMapPickBtn').dataset.mapPickTarget = 'origin';
+  document.getElementById('originMapPickBtn').dataset.mapPickFlow = 'single';
+  document.getElementById('destinationMapPickBtn').dataset.mapPickTarget = 'destination';
+  document.getElementById('destinationMapPickBtn').dataset.mapPickFlow = 'single';
+  document.getElementById('pickWaypointMapBtn').dataset.mapPickTarget = 'waypoint';
+  document.getElementById('pickWaypointMapBtn').dataset.mapPickFlow = 'route';
 
   // Help toggle (queried by class)
   const helpBtn = document.createElement('button');
@@ -335,6 +356,71 @@ describe('parseLocation', () => {
   test('returns address for partial coordinates', () => {
     const result = globalThis.parseLocation('40.7128');
     expect(result.address).toBe('40.7128');
+  });
+
+  test('returns address for out-of-range coordinate-like input', () => {
+    const result = globalThis.parseLocation('91, -181');
+    expect(result.address).toBe('91, -181');
+    expect(result.location).toBeUndefined();
+  });
+});
+
+// ============ coordinate helpers ============
+describe('coordinate helpers', () => {
+  test('validates latitude and longitude ranges', () => {
+    expect(globalThis.isValidLatLng({ latitude: 90, longitude: 180 })).toBe(true);
+    expect(globalThis.isValidLatLng({ latitude: 90.1, longitude: 0 })).toBe(false);
+    expect(globalThis.isValidLatLng({ latitude: 0, longitude: -180.1 })).toBe(false);
+  });
+
+  test('detects coordinate-shaped strings', () => {
+    expect(globalThis.looksLikeCoordinatePair('40.7, -74.0')).toBe(true);
+    expect(globalThis.looksLikeCoordinatePair('New York, NY')).toBe(false);
+  });
+});
+
+// ============ map click picker ============
+describe('map click picker', () => {
+  test('sets origin and exits for single-target picking', () => {
+    document.getElementById('origin').value = '';
+    document.getElementById('destination').value = '';
+
+    globalThis.enterClickMode('origin', 'single');
+    globalThis.__mapEventHandlers.click({ latlng: { lat: 40.1234567, lng: -73.9876543 } });
+
+    expect(document.getElementById('origin').value).toBe('40.123457, -73.987654');
+    expect(document.getElementById('mapModeIndicator').style.display).toBe('none');
+    expect(document.getElementById('clickModeBtn').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  test('guided picking advances from origin to destination to waypoint', () => {
+    document.getElementById('origin').value = '';
+    document.getElementById('destination').value = '';
+    document.getElementById('stopsContainer').innerHTML = '';
+
+    globalThis.enterClickMode('origin', 'route');
+    globalThis.__mapEventHandlers.click({ latlng: { lat: 40, lng: -74 } });
+
+    expect(document.getElementById('origin').value).toBe('40.000000, -74.000000');
+    expect(document.getElementById('mapModeIndicator').style.display).toBe('flex');
+    expect(document.getElementById('clickModeTarget').textContent).toContain('destination');
+
+    globalThis.__mapEventHandlers.click({ latlng: { lat: 41, lng: -75 } });
+
+    expect(document.getElementById('destination').value).toBe('41.000000, -75.000000');
+    expect(document.getElementById('clickModeTarget').textContent).toContain('waypoint');
+    globalThis.exitClickMode();
+  });
+});
+
+// ============ assertFileSize ============
+describe('assertFileSize', () => {
+  test('allows files at the configured limit', () => {
+    expect(() => globalThis.assertFileSize({ name: 'route.gpx', size: 1024 }, 1024, 'route.gpx')).not.toThrow();
+  });
+
+  test('rejects files above the configured limit', () => {
+    expect(() => globalThis.assertFileSize({ name: 'huge.gpx', size: 2048 }, 1024, 'huge.gpx')).toThrow('too large');
   });
 });
 
@@ -581,5 +667,37 @@ describe('haversineDistance', () => {
     const d1 = globalThis.haversineDistance([40.7128, -74.006], [51.5074, -0.1278]);
     const d2 = globalThis.haversineDistance([51.5074, -0.1278], [40.7128, -74.006]);
     expect(d1).toBeCloseTo(d2, 0);
+  });
+});
+
+// ============ filename modal accessibility ============
+describe('filename modal accessibility', () => {
+  test('uses shared modal state for focus trap and inert app content', () => {
+    const returnFocusButton = document.createElement('button');
+    document.body.appendChild(returnFocusButton);
+    returnFocusButton.focus();
+
+    globalThis.openFilenameModal(1, '<gpx></gpx>', 'route.gpx');
+
+    const modal = document.getElementById('filenameModal');
+    const input = document.getElementById('filenameInput');
+    const app = document.getElementById('app');
+    expect(modal.classList.contains('visible')).toBe(true);
+    expect(document.activeElement).toBe(input);
+    expect(app.getAttribute('aria-hidden')).toBe('true');
+
+    const escapeEvent = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(escapeEvent);
+
+    expect(escapeEvent.defaultPrevented).toBe(true);
+    expect(modal.classList.contains('visible')).toBe(false);
+    expect(app.hasAttribute('aria-hidden')).toBe(false);
+    expect(document.activeElement).toBe(returnFocusButton);
+
+    returnFocusButton.remove();
   });
 });

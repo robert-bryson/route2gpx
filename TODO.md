@@ -1,13 +1,27 @@
-- [x] better map ui:
-  - [x] user should be able to click on map to have start/end
-  - [x] user should be able to set intermediary checkpoints along route
-- [x] better export names: filename confirmation modal before download
-- [x] real elevation data via Open-Topo-Data API
-- [x] GPX/KML import & overlay on map (drag-and-drop or file picker)
-- [x] batch ZIP export for multiple routes
-- [ ] alternative routing engine (OSRM) as free fallback to Google Routes API
-- [ ] route drag-to-edit (adjust path after computation)
-- [ ] address autocomplete/geocoding suggestions
-- [ ] URL-based route sharing (encode params in hash)
-- [x] Be able to load Fog of World data onto map (FoW uses proprietary format; GPX import covers the export path)
-  - [ ] be able to manipulate the FoW data? directly bake new GPS data into it?
+# TODO
+
+## Completed
+
+- [x] Map UI supports click-to-set origin/destination.
+- [x] Map UI supports intermediary route waypoints.
+- [x] Filename confirmation modal before GPX download.
+- [x] Elevation lookup via Open-Topo-Data.
+- [x] GPX/KML/FIT/TCX/GeoJSON import and map overlay.
+- [x] Batch ZIP export for multiple routes.
+- [x] Fog of World ZIP import and map overlay.
+- [x] Python CLI can be imported without making network requests or writing files.
+- [x] Import size checks cover compressed and decompressed GPS/Fog of World data.
+
+## Planned Features
+
+- [ ] Alternative routing engine, likely OSRM, as a free fallback to Google Routes API.
+- [ ] Route drag-to-edit after computation.
+- [ ] Address autocomplete/geocoding suggestions.
+- [ ] URL-based route sharing with encoded route parameters in the hash.
+- [ ] Optional Fog of World data editing/export, if the proprietary format can be handled safely.
+
+## Technical Debt
+
+- [ ] Split the large browser bundle source into smaller modules with explicit exports.
+- [ ] Add browser-level smoke tests for CDN assets, map startup, imports, and downloads.
+- [ ] Document the Amplify elevation rewrite and local-development behavior.

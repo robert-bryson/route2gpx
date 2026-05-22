@@ -1,7 +1,8 @@
 [project]
 name = "route2gpx"
 version = "0.1.0"
-description = ""
+description = "Convert Google Routes API routes to GPX files."
+license = "MIT"
 authors = [
     {name = "robert-bryson",email = "rsmbryson@gmail.com"}
 ]

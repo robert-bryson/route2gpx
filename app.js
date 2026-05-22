@@ -1,8 +1,50 @@
 // ============ State ============
 let routes = [];
 let clickMode = null; // null, 'origin', 'destination', 'waypoint'
+let clickModeFlow = 'single'; // 'single' or 'route'
 let distanceUnit = 'km';
 let previewMarkers = [];
+let activeModal = null;
+let activeModalReturnFocus = null;
+let statusTimer = null;
+
+const API_KEY_STORAGE_KEY = 'route2gpx_apiKey';
+const API_KEY_MEMORY_KEY = 'route2gpx_apiKey_session';
+const ROUTES_STORAGE_KEY = 'route2gpx_routes';
+const UNIT_STORAGE_KEY = 'route2gpx_unit';
+const ROUTE_REQUEST_TIMEOUT_MS = 30000;
+const ELEVATION_REQUEST_TIMEOUT_MS = 20000;
+const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_DECOMPRESSED_IMPORT_BYTES = 120 * 1024 * 1024;
+
+const CLICK_MODE_COPY = {
+    origin: {
+        indicator: 'Click the map to set origin',
+        status: 'Origin set from map'
+    },
+    destination: {
+        indicator: 'Click the map to set destination',
+        status: 'Destination set from map'
+    },
+    waypoint: {
+        indicator: 'Click the map to add a waypoint',
+        status: 'Waypoint added from map'
+    }
+};
+
+const THIRD_PARTY_SCRIPTS = {
+    jszip: {
+        globalName: 'JSZip',
+        src: 'https://unpkg.com/jszip@3.10.1/dist/jszip.min.js',
+        integrity: 'sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG'
+    },
+    pako: {
+        globalName: 'pako',
+        src: 'https://unpkg.com/pako@2.1.0/dist/pako.min.js',
+        integrity: 'sha384-rNlaE5fs9dGIjmxWDALQh/RBAaGRYT5ChrzHo6tRfgrZ36iRFAiquP5g41Jsv+0j'
+    }
+};
+const loadingScripts = new Map();
 
 // Vibrant colors that pop on grayscale basemap
 const COLOR_PALETTE = [
@@ -49,13 +91,13 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
 function loadFromStorage() {
     try {
         // Distance unit
-        const savedUnit = localStorage.getItem('route2gpx_unit');
+        const savedUnit = localStorage.getItem(UNIT_STORAGE_KEY);
         if (savedUnit) {
             setUnit(savedUnit, false);
         }
 
         // Saved routes
-        const savedRoutes = localStorage.getItem('route2gpx_routes');
+        const savedRoutes = localStorage.getItem(ROUTES_STORAGE_KEY);
         if (savedRoutes) {
             const routeData = JSON.parse(savedRoutes);
             routeData.forEach(data => {
@@ -66,15 +108,15 @@ function loadFromStorage() {
                 showStatus(`Restored ${routes.length} route(s) from previous session`);
             }
         }
-    } catch (e) {
-        console.error('Failed to restore from storage:', e);
+    } catch (error) {
+        console.error('Failed to restore from storage:', error.message);
     }
 }
 
 function saveToStorage() {
     try {
         // Distance unit
-        localStorage.setItem('route2gpx_unit', distanceUnit);
+        localStorage.setItem(UNIT_STORAGE_KEY, distanceUnit);
 
         // Routes (without Leaflet objects)
         const routeData = routes.map(r => ({
@@ -88,11 +130,54 @@ function saveToStorage() {
             coordinates: r.coordinates,
             elevations: r.elevations || null,
             distance: r.distance,
-            duration: r.duration
+            duration: r.duration,
+            visible: r.visible !== false
         }));
-        localStorage.setItem('route2gpx_routes', JSON.stringify(routeData));
-    } catch (e) {
-        console.error('Failed to save to storage:', e);
+        localStorage.setItem(ROUTES_STORAGE_KEY, JSON.stringify(routeData));
+    } catch (error) {
+        console.error('Failed to save to storage:', error.message);
+    }
+}
+
+function loadExternalScript(scriptConfig) {
+    if (typeof window[scriptConfig.globalName] !== 'undefined') {
+        return Promise.resolve(window[scriptConfig.globalName]);
+    }
+
+    if (loadingScripts.has(scriptConfig.globalName)) {
+        return loadingScripts.get(scriptConfig.globalName);
+    }
+
+    const promise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = scriptConfig.src;
+        script.integrity = scriptConfig.integrity;
+        script.crossOrigin = 'anonymous';
+        script.async = true;
+        script.onload = () => resolve(window[scriptConfig.globalName]);
+        script.onerror = () => reject(new Error(`Failed to load ${scriptConfig.globalName}`));
+        document.head.appendChild(script);
+    });
+
+    loadingScripts.set(scriptConfig.globalName, promise);
+    return promise;
+}
+
+function ensureJSZip() {
+    return loadExternalScript(THIRD_PARTY_SCRIPTS.jszip);
+}
+
+function ensurePako() {
+    return loadExternalScript(THIRD_PARTY_SCRIPTS.pako);
+}
+
+function formatSizeLimit(bytes) {
+    return formatFileSize(bytes).replace('.0 ', ' ');
+}
+
+function assertFileSize(file, maxBytes, label) {
+    if (file.size > maxBytes) {
+        throw new Error(`${label} is too large (${formatFileSize(file.size)}). Maximum size is ${formatSizeLimit(maxBytes)}.`);
     }
 }
 
@@ -224,6 +309,8 @@ function sanitizeColor(color, fallbackIndex) {
 function restoreRoute(data) {
     if (!Number.isFinite(data.id)) data.id = Date.now();
     data.color = sanitizeColor(data.color, routes.length);
+    data.visible = data.visible !== false;
+    data.elevationStatus = data.elevations && data.elevations.some(elevation => elevation !== null) ? 'ready' : null;
     const polylineLayer = L.polyline(data.coordinates, {
         color: data.color,
         weight: 4,
@@ -238,6 +325,11 @@ function restoreRoute(data) {
         markers
     };
     routes.push(route);
+
+    if (!route.visible) {
+        map.removeLayer(polylineLayer);
+        markers.forEach(marker => map.removeLayer(marker));
+    }
 
     // Bind popup after route is in array
     bindRoutePopup(polylineLayer, route);
@@ -284,6 +376,33 @@ function createRouteMarkers(coordinates, color) {
     return markers;
 }
 
+function parseLatLngInput(input) {
+    const latLngMatch = input.trim().match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+    if (!latLngMatch) return null;
+
+    const latitude = parseFloat(latLngMatch[1]);
+    const longitude = parseFloat(latLngMatch[2]);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+    return { latitude, longitude };
+}
+
+function isValidLatLng({ latitude, longitude }) {
+    return latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;
+}
+
+function looksLikeCoordinatePair(input) {
+    return /^-?\d+\.?\d*\s*,\s*-?\d+\.?\d*$/.test(input.trim());
+}
+
+function validateLocationInput(input, label) {
+    if (!looksLikeCoordinatePair(input)) return true;
+    const latLng = parseLatLngInput(input);
+    if (latLng && isValidLatLng(latLng)) return true;
+    showStatus(`${label} coordinates must be latitude -90 to 90 and longitude -180 to 180`, true);
+    return false;
+}
+
 function updatePreviewMarkers() {
     // Clear existing preview markers
     previewMarkers.forEach(m => map.removeLayer(m));
@@ -294,13 +413,10 @@ function updatePreviewMarkers() {
     const stops = getStops();
     const previewColor = document.getElementById('routeColor').value || '#888';
 
-    // Only show preview markers for lat,lng inputs
-    const latLngRegex = /^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/;
-
     if (origin) {
-        const match = origin.match(latLngRegex);
-        if (match) {
-            const marker = L.marker([parseFloat(match[1]), parseFloat(match[2])], {
+        const latLng = parseLatLngInput(origin);
+        if (latLng && isValidLatLng(latLng)) {
+            const marker = L.marker([latLng.latitude, latLng.longitude], {
                 icon: createMarkerIcon('start', previewColor),
                 opacity: 0.7
             }).addTo(map);
@@ -309,9 +425,9 @@ function updatePreviewMarkers() {
     }
 
     if (destination) {
-        const match = destination.match(latLngRegex);
-        if (match) {
-            const marker = L.marker([parseFloat(match[1]), parseFloat(match[2])], {
+        const latLng = parseLatLngInput(destination);
+        if (latLng && isValidLatLng(latLng)) {
+            const marker = L.marker([latLng.latitude, latLng.longitude], {
                 icon: createMarkerIcon('end', previewColor),
                 opacity: 0.7
             }).addTo(map);
@@ -320,9 +436,9 @@ function updatePreviewMarkers() {
     }
 
     stops.forEach((stop, idx) => {
-        const match = stop.match(latLngRegex);
-        if (match) {
-            const marker = L.marker([parseFloat(match[1]), parseFloat(match[2])], {
+        const latLng = parseLatLngInput(stop);
+        if (latLng && isValidLatLng(latLng)) {
+            const marker = L.marker([latLng.latitude, latLng.longitude], {
                 icon: createMarkerIcon('waypoint', previewColor, idx + 1),
                 opacity: 0.7
             }).addTo(map);
@@ -336,51 +452,75 @@ function toggleClickMode() {
     if (clickMode) {
         exitClickMode();
     } else {
-        enterClickMode('origin');
+        enterClickMode(getNextMapPickTarget(), 'route');
     }
 }
 
-function enterClickMode(target) {
-    clickMode = target;
+function getNextMapPickTarget() {
+    const origin = document.getElementById('origin').value.trim();
+    const destination = document.getElementById('destination').value.trim();
+    if (!origin) return 'origin';
+    if (!destination) return 'destination';
+    return 'waypoint';
+}
+
+function getClickModeInput(target) {
+    if (target === 'origin') return document.getElementById('origin');
+    if (target === 'destination') return document.getElementById('destination');
+    return null;
+}
+
+function updateClickModeUi() {
     const btn = document.getElementById('clickModeBtn');
     const indicator = document.getElementById('mapModeIndicator');
     const targetSpan = document.getElementById('clickModeTarget');
+    const mapElement = document.getElementById('map');
+    const isPicking = Boolean(clickMode);
 
-    btn.classList.add('active');
-    btn.setAttribute('aria-pressed', 'true');
-    indicator.style.display = 'block';
+    btn.classList.toggle('active', isPicking);
+    btn.setAttribute('aria-pressed', isPicking ? 'true' : 'false');
+    btn.setAttribute('aria-label', isPicking ? 'Cancel map picking' : 'Start guided map picker');
+    btn.title = isPicking ? 'Cancel map picking' : 'Guided map picker: set origin, destination, then waypoints';
 
-    const labels = {
-        'origin': 'Set Origin',
-        'destination': 'Set Destination',
-        'waypoint': 'Add Waypoint'
-    };
-    targetSpan.textContent = labels[target] || target;
+    indicator.style.display = isPicking ? 'flex' : 'none';
+    if (isPicking) {
+        targetSpan.textContent = CLICK_MODE_COPY[clickMode]?.indicator || 'Click the map to set a point';
+    }
 
-    document.getElementById('map').style.cursor = 'crosshair';
+    mapElement.classList.toggle('map-picking', isPicking);
+
+    document.querySelectorAll('[data-map-pick-target]').forEach(pickButton => {
+        const targetMatches = pickButton.dataset.mapPickTarget === clickMode;
+        const flowMatches = (pickButton.dataset.mapPickFlow || 'single') === clickModeFlow;
+        const active = isPicking && targetMatches && flowMatches;
+        pickButton.classList.toggle('active', active);
+        pickButton.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+
+    document.querySelectorAll('.input-with-btn.picking').forEach(group => group.classList.remove('picking'));
+    const activeInput = getClickModeInput(clickMode);
+    activeInput?.closest('.input-with-btn')?.classList.add('picking');
+}
+
+function enterClickMode(target, flow = 'single') {
+    clickMode = target;
+    clickModeFlow = flow;
+    updateClickModeUi();
 }
 
 function exitClickMode() {
     clickMode = null;
-    const btn = document.getElementById('clickModeBtn');
-    const indicator = document.getElementById('mapModeIndicator');
-
-    btn.classList.remove('active');
-    btn.setAttribute('aria-pressed', 'false');
-    indicator.style.display = 'none';
-    document.getElementById('map').style.cursor = '';
+    clickModeFlow = 'single';
+    updateClickModeUi();
 }
 
-function advanceClickMode() {
-    const origin = document.getElementById('origin').value.trim();
-    const destination = document.getElementById('destination').value.trim();
-
-    if (!origin) {
-        enterClickMode('origin');
-    } else if (!destination) {
-        enterClickMode('destination');
-    } else {
-        enterClickMode('waypoint');
+function setMapPickValue(target, latLng) {
+    if (target === 'origin') {
+        document.getElementById('origin').value = latLng;
+    } else if (target === 'destination') {
+        document.getElementById('destination').value = latLng;
+    } else if (target === 'waypoint') {
+        addStop(latLng);
     }
 }
 
@@ -388,19 +528,20 @@ map.on('click', function (e) {
     if (!clickMode) return;
 
     const latLng = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+    const target = clickMode;
+    const flow = clickModeFlow;
 
-    if (clickMode === 'origin') {
-        document.getElementById('origin').value = latLng;
-        advanceClickMode();
-    } else if (clickMode === 'destination') {
-        document.getElementById('destination').value = latLng;
-        advanceClickMode();
-    } else if (clickMode === 'waypoint') {
-        addStop(latLng);
-        // Stay in waypoint mode for adding more
-    }
-
+    setMapPickValue(target, latLng);
     updatePreviewMarkers();
+
+    if (flow === 'route') {
+        const nextTarget = target === 'waypoint' ? 'waypoint' : getNextMapPickTarget();
+        enterClickMode(nextTarget, 'route');
+        showStatus(`${CLICK_MODE_COPY[target]?.status || 'Point set from map'}. ${CLICK_MODE_COPY[nextTarget]?.indicator || 'Click the map to continue'}.`);
+    } else {
+        exitClickMode();
+        showStatus(CLICK_MODE_COPY[target]?.status || 'Point set from map');
+    }
 });
 
 // ============ Help Toggle ============
@@ -411,9 +552,86 @@ function toggleHelp() {
     btn.setAttribute('aria-expanded', isVisible);
 }
 
+function getFocusableElements(container) {
+    return Array.from(container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ));
+}
+
+function setAppInert(isInert) {
+    const app = document.getElementById('app');
+    if (!app) return;
+    app.inert = isInert;
+    if (isInert) {
+        app.setAttribute('aria-hidden', 'true');
+    } else {
+        app.removeAttribute('aria-hidden');
+    }
+}
+
+function openModal(modal, initialFocusElement) {
+    activeModal = modal;
+    activeModalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setAppInert(true);
+    modal.classList.add('visible');
+    (initialFocusElement || getFocusableElements(modal)[0] || modal).focus();
+}
+
+function closeModal(modal) {
+    modal.classList.remove('visible');
+    if (activeModal === modal) {
+        activeModal = null;
+        setAppInert(false);
+        if (activeModalReturnFocus && typeof activeModalReturnFocus.focus === 'function' && document.contains(activeModalReturnFocus)) {
+            activeModalReturnFocus.focus();
+        }
+        activeModalReturnFocus = null;
+    }
+}
+
+function handleModalKeydown(event) {
+    if (!activeModal) return;
+
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        if (activeModal.id === 'apiKeyModal') closeApiKeyModal();
+        else if (activeModal.id === 'filenameModal') closeFilenameModal();
+        return;
+    }
+
+    if (event.key !== 'Tab') return;
+
+    const focusableElements = getFocusableElements(activeModal);
+    if (focusableElements.length === 0) {
+        event.preventDefault();
+        activeModal.focus();
+        return;
+    }
+
+    const first = focusableElements[0];
+    const last = focusableElements[focusableElements.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+    }
+}
+
+document.addEventListener('keydown', handleModalKeydown, true);
+
 // ============ API Key Modal ============
 function getApiKey() {
-    try { return localStorage.getItem('route2gpx_apiKey') || ''; } catch { return ''; }
+    try {
+        return sessionStorage.getItem(API_KEY_MEMORY_KEY) || localStorage.getItem(API_KEY_STORAGE_KEY) || '';
+    } catch {
+        return '';
+    }
+}
+
+function isApiKeyRemembered() {
+    try { return Boolean(localStorage.getItem(API_KEY_STORAGE_KEY)); } catch { return false; }
 }
 
 function updateApiKeyStatus() {
@@ -423,8 +641,8 @@ function updateApiKeyStatus() {
     if (apiKey) {
         btn.classList.remove('missing');
         btn.classList.add('valid');
-        btn.title = 'API key saved — click to edit';
-        btn.setAttribute('aria-label', 'API key saved, click to edit');
+        btn.title = isApiKeyRemembered() ? 'API key saved on this browser — click to edit' : 'API key saved for this tab — click to edit';
+        btn.setAttribute('aria-label', btn.title);
     } else {
         btn.classList.remove('valid');
         btn.classList.add('missing');
@@ -442,23 +660,42 @@ function checkApiKeyOnLoad() {
 function openApiKeyModal() {
     const modal = document.getElementById('apiKeyModal');
     const input = document.getElementById('apiKeyInput');
+    const rememberInput = document.getElementById('rememberApiKey');
     input.value = getApiKey();
-    modal.classList.add('visible');
-    input.focus();
+    if (rememberInput) rememberInput.checked = isApiKeyRemembered() || !getApiKey();
+    updateApiKeyStorageHint();
+    openModal(modal, input);
 }
 
 function closeApiKeyModal() {
     const modal = document.getElementById('apiKeyModal');
-    modal.classList.remove('visible');
+    closeModal(modal);
+}
+
+function updateApiKeyStorageHint() {
+    const rememberInput = document.getElementById('rememberApiKey');
+    const hint = document.getElementById('apiKeyStorageHint');
+    if (!rememberInput || !hint) return;
+    hint.textContent = rememberInput.checked
+        ? 'Stored in this browser until you clear it. Restrict the key to this website and the Routes API.'
+        : 'Stored only in this tab and cleared when the tab closes.';
 }
 
 function saveApiKey() {
     const input = document.getElementById('apiKeyInput');
+    const rememberInput = document.getElementById('rememberApiKey');
     const key = input.value.trim();
 
     if (key) {
-        localStorage.setItem('route2gpx_apiKey', key);
-        showStatus('API key saved');
+        if (rememberInput && rememberInput.checked) {
+            localStorage.setItem(API_KEY_STORAGE_KEY, key);
+            sessionStorage.removeItem(API_KEY_MEMORY_KEY);
+            showStatus('API key saved on this browser');
+        } else {
+            sessionStorage.setItem(API_KEY_MEMORY_KEY, key);
+            localStorage.removeItem(API_KEY_STORAGE_KEY);
+            showStatus('API key saved for this tab');
+        }
         updateApiKeyStatus();
         closeApiKeyModal();
     } else {
@@ -468,7 +705,8 @@ function saveApiKey() {
 }
 
 function clearApiKey() {
-    localStorage.removeItem('route2gpx_apiKey');
+    localStorage.removeItem(API_KEY_STORAGE_KEY);
+    sessionStorage.removeItem(API_KEY_MEMORY_KEY);
     updateApiKeyStatus();
     openApiKeyModal();
 }
@@ -643,29 +881,43 @@ function setUnit(unit, save = true) {
 // ============ Status Messages ============
 function showStatus(message, isError = false) {
     const status = document.getElementById('status');
+    clearTimeout(statusTimer);
     status.textContent = message;
     status.className = 'status ' + (isError ? 'error' : 'success');
     status.style.display = 'block';
 
-    if (!isError) {
-        setTimeout(() => { status.style.display = 'none'; }, 3000);
-    }
+    statusTimer = setTimeout(() => { status.style.display = 'none'; }, isError ? 9000 : 4000);
 }
 
 // ============ Location Parsing ============
 function parseLocation(input) {
-    const latLngMatch = input.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
-    if (latLngMatch) {
+    const latLng = parseLatLngInput(input);
+    if (latLng && isValidLatLng(latLng)) {
         return {
             location: {
                 latLng: {
-                    latitude: parseFloat(latLngMatch[1]),
-                    longitude: parseFloat(latLngMatch[2])
+                    latitude: latLng.latitude,
+                    longitude: latLng.longitude
                 }
             }
         };
     }
     return { address: input };
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = ROUTE_REQUEST_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            throw new Error('Network request timed out. Please try again.');
+        }
+        throw error;
+    } finally {
+        clearTimeout(timeoutId);
+    }
 }
 
 // ============ Get Route from API ============
@@ -699,6 +951,19 @@ async function getRoute() {
         document.getElementById('destination').focus();
         return;
     }
+    if (!validateLocationInput(origin, 'Origin')) {
+        document.getElementById('origin').focus();
+        return;
+    }
+    if (!validateLocationInput(destination, 'Destination')) {
+        document.getElementById('destination').focus();
+        return;
+    }
+    const invalidStopIndex = stops.findIndex(stop => !validateLocationInput(stop, 'Waypoint'));
+    if (invalidStopIndex !== -1) {
+        document.querySelectorAll('.stop-input')[invalidStopIndex]?.focus();
+        return;
+    }
 
     const btn = document.getElementById('getRouteBtn');
     btn.disabled = true;
@@ -716,7 +981,7 @@ async function getRoute() {
             payload.intermediates = stops.map(stop => parseLocation(stop));
         }
 
-        const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+        const response = await fetchWithTimeout('https://routes.googleapis.com/directions/v2:computeRoutes', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -724,7 +989,7 @@ async function getRoute() {
                 'X-Goog-FieldMask': 'routes.polyline,routes.distanceMeters,routes.duration'
             },
             body: JSON.stringify(payload)
-        });
+        }, ROUTE_REQUEST_TIMEOUT_MS);
 
         const data = await response.json();
 
@@ -779,7 +1044,8 @@ async function getRoute() {
             markers,
             distance,
             duration,
-            visible: true
+            visible: true,
+            elevationStatus: 'loading'
         };
         routes.push(route);
 
@@ -811,6 +1077,7 @@ async function getRoute() {
             if (route.elevations && route.elevations.some(e => e !== null)) {
                 showStatus(`Elevation data added for: ${route.name}`);
             }
+            renderRoutesList();
         });
 
         // Return focus to origin for next route
@@ -869,10 +1136,10 @@ function renderRoutesList() {
 
     if (routes.length === 0) {
         list.innerHTML = `
-            <div style="color: #778; text-align: center; padding: 20px;">
+            <div style="color: #b7c3dc; text-align: center; padding: 20px;">
                 <div style="font-size: 1.6rem; margin-bottom: 6px;">🗺️</div>
                 <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px;">No routes yet</div>
-                <div style="font-size: 0.75rem; color: #556;">Enter an origin and destination, then press Enter</div>
+                <div style="font-size: 0.75rem; color: #a9b6d3;">Enter an origin and destination, then press Enter</div>
             </div>
         `;
         return;
@@ -885,11 +1152,15 @@ function renderRoutesList() {
              aria-label="Route ${idx + 1}: ${escapeHtml(route.name)}. Press Enter to zoom and view details.">
             <div class="route-item-header">
                 <div>
+                    <div class="route-title-row">
+                    <span class="route-number" style="background: ${route.color};" aria-hidden="true">${idx + 1}</span>
                     <div class="route-item-title">${escapeHtml(route.name)}</div>
+                    </div>
                     <div class="route-item-meta">
                         ${getModeEmoji(route.travelMode)} ${escapeHtml(route.travelMode.toLowerCase())} •
                         ${formatDistance(route.distance)} • ${formatDuration(route.duration)}
                         ${route.stops.length > 0 ? ` • ${route.stops.length} stop(s)` : ''}
+                        ${getElevationStatusText(route) ? ` • <span class="route-elevation-status">${getElevationStatusText(route)}</span>` : ''}
                     </div>
                 </div>
             </div>
@@ -919,6 +1190,13 @@ function getModeEmoji(mode) {
     return emojis[mode] || '📍';
 }
 
+function getElevationStatusText(route) {
+    if (route.elevationStatus === 'loading') return 'adding elevation';
+    if (route.elevationStatus === 'ready') return 'elevation ready';
+    if (route.elevationStatus === 'unavailable') return 'no elevation';
+    return '';
+}
+
 // ============ Route Actions ============
 function updateBulkButtons() {
     const hasRoutes = routes.length > 0;
@@ -935,6 +1213,7 @@ function zoomToRoute(id) {
             route.polylineLayer.addTo(map);
             route.markers.forEach(m => m.addTo(map));
             renderRoutesList();
+            saveToStorage();
         }
 
         map.fitBounds(route.polylineLayer.getBounds(), { padding: [50, 50] });
@@ -973,6 +1252,7 @@ function toggleRouteVisibility(id) {
             route.markers.forEach(m => map.removeLayer(m));
         }
         renderRoutesList();
+        saveToStorage();
     }
 }
 
@@ -1083,17 +1363,17 @@ let pendingDownload = null; // { routeId, gpxContent, defaultFilename }
 
 function openFilenameModal(routeId, gpxContent, defaultFilename) {
     pendingDownload = { routeId, gpxContent, defaultFilename };
+    const modal = document.getElementById('filenameModal');
     const input = document.getElementById('filenameInput');
     const preview = document.getElementById('filenamePreview');
     input.value = defaultFilename;
     preview.textContent = defaultFilename;
-    document.getElementById('filenameModal').classList.add('visible');
-    input.focus();
+    openModal(modal, input);
     input.select();
 }
 
 function closeFilenameModal() {
-    document.getElementById('filenameModal').classList.remove('visible');
+    closeModal(document.getElementById('filenameModal'));
     pendingDownload = null;
 }
 
@@ -1131,7 +1411,7 @@ function downloadRoute(id) {
     openFilenameModal(id, gpx, filename);
 }
 
-function downloadAllRoutes() {
+async function downloadAllRoutes() {
     if (routes.length === 0) return;
 
     if (routes.length === 1) {
@@ -1140,25 +1420,26 @@ function downloadAllRoutes() {
     }
 
     // Batch download as ZIP
-    if (typeof JSZip !== 'undefined') {
+    try {
+        await ensureJSZip();
         const zip = new JSZip();
         routes.forEach(route => {
             const gpx = generateGPX(route);
             const filename = `${sanitizeFilename(route.travelMode.toLowerCase())}_${sanitizeFilename(route.name)}.gpx`;
             zip.file(filename, gpx);
         });
-        zip.generateAsync({ type: 'blob' }).then(blob => {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'routes.zip';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            showStatus(`Downloaded ${routes.length} routes as ZIP`);
-        });
-    } else {
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'routes.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showStatus(`Downloaded ${routes.length} routes as ZIP`);
+    } catch (error) {
+        console.warn('ZIP download unavailable, falling back to sequential GPX downloads:', error.message);
         // Fallback: sequential downloads
         routes.forEach((route, idx) => {
             setTimeout(() => {
@@ -1167,6 +1448,7 @@ function downloadAllRoutes() {
                 downloadFile(gpx, filename, 'application/gpx+xml');
             }, idx * 300);
         });
+        showStatus('ZIP support failed to load; downloading GPX files individually', true);
     }
 }
 
@@ -1193,7 +1475,11 @@ async function fetchElevations(coordinates) {
         const locations = batch.map(([lat, lng]) => `${lat.toFixed(6)},${lng.toFixed(6)}`).join('|');
 
         try {
-            const response = await fetch(`/api/elevation/v1/srtm90m?locations=${encodeURIComponent(locations)}`);
+            const response = await fetchWithTimeout(
+                `/api/elevation/v1/srtm90m?locations=${encodeURIComponent(locations)}`,
+                {},
+                ELEVATION_REQUEST_TIMEOUT_MS
+            );
             if (!response.ok) throw new Error(`Elevation API error: ${response.status}`);
 
             const data = await response.json();
@@ -1220,32 +1506,72 @@ async function enrichRouteElevations(route) {
     if (route.elevations && route.elevations.some(e => e !== null)) return; // Already fetched
 
     try {
+        route.elevationStatus = 'loading';
+        renderRoutesList();
         route.elevations = await fetchElevations(route.coordinates);
+        route.elevationStatus = route.elevations.some(elevation => elevation !== null) ? 'ready' : 'unavailable';
         saveToStorage();
-    } catch (e) {
-        console.warn('Failed to fetch elevations:', e.message);
+    } catch (error) {
+        route.elevationStatus = 'unavailable';
+        renderRoutesList();
+        console.warn('Failed to fetch elevations:', error.message);
     }
 }
 
 // ============ GPX Import ============
+let fileDropGuardInstalled = false;
+
+function eventHasFiles(event) {
+    return Array.from(event.dataTransfer?.items || []).some(item => item.kind === 'file');
+}
+
+function isImportDropTarget(target) {
+    return target instanceof Element && Boolean(target.closest('.import-section'));
+}
+
+function setupGlobalFileDropGuard() {
+    if (fileDropGuardInstalled) return;
+    fileDropGuardInstalled = true;
+
+    window.addEventListener('dragover', (event) => {
+        if (!eventHasFiles(event)) return;
+        event.preventDefault();
+        if (!isImportDropTarget(event.target)) {
+            event.dataTransfer.dropEffect = 'none';
+        }
+    });
+
+    window.addEventListener('drop', (event) => {
+        if (!eventHasFiles(event)) return;
+        if (!isImportDropTarget(event.target)) {
+            event.preventDefault();
+        }
+    });
+}
+
 function setupImport() {
     const dropZone = document.getElementById('importDropZone');
     const fileInput = document.getElementById('importFileInput');
+    setupGlobalFileDropGuard();
 
-    dropZone.addEventListener('click', () => fileInput.click());
     dropZone.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
     });
 
     dropZone.addEventListener('dragover', (e) => {
         e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'copy';
         dropZone.classList.add('drag-over');
     });
-    dropZone.addEventListener('dragleave', () => {
-        dropZone.classList.remove('drag-over');
+    dropZone.addEventListener('dragleave', (e) => {
+        if (e.target === dropZone) {
+            dropZone.classList.remove('drag-over');
+        }
     });
     dropZone.addEventListener('drop', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         dropZone.classList.remove('drag-over');
         const files = e.dataTransfer.files;
         if (files.length > 0) handleImportFiles(files);
@@ -1263,6 +1589,7 @@ async function handleImportFiles(files) {
 
     for (const file of fileArray) {
         try {
+            showStatus(`Importing ${file.name}...`);
             await handleSingleImportFile(file);
             imported++;
         } catch (e) {
@@ -1290,18 +1617,22 @@ function detectImportFormat(filename) {
 }
 
 async function handleSingleImportFile(file) {
+    assertFileSize(file, MAX_IMPORT_FILE_BYTES, file.name);
     const detected = detectImportFormat(file.name);
     if (!detected) {
-        showStatus(`Unsupported file: ${file.name}`, true);
-        return;
+        throw new Error('Unsupported file type');
     }
 
     const { format, gzipped } = detected;
     let arrayBuffer = await file.arrayBuffer();
 
-    // Decompress gzipped files using pako (already loaded for FoW)
+    // Decompress gzipped files using pako, loaded only when needed.
     if (gzipped) {
+        await ensurePako();
         const inflated = pako.inflate(new Uint8Array(arrayBuffer));
+        if (inflated.byteLength > MAX_DECOMPRESSED_IMPORT_BYTES) {
+            throw new Error(`Decompressed file is too large. Maximum size is ${formatSizeLimit(MAX_DECOMPRESSED_IMPORT_BYTES)}.`);
+        }
         arrayBuffer = inflated.buffer;
     }
 
@@ -1437,6 +1768,7 @@ function addImportedRoute(name, coordinates, elevations) {
 
     const markers = createRouteMarkers(coordinates, color);
 
+    const hasElevation = elevations && elevations.some(e => e !== null);
     const route = {
         id: routeId,
         name: name,
@@ -1446,12 +1778,13 @@ function addImportedRoute(name, coordinates, elevations) {
         travelMode: 'IMPORTED',
         color: color,
         coordinates: coordinates,
-        elevations: elevations.some(e => e !== null) ? elevations : null,
+        elevations: hasElevation ? elevations : null,
         polylineLayer: polylineLayer,
         markers: markers,
         distance: Math.round(distance),
         duration: null,
-        visible: true
+        visible: true,
+        elevationStatus: hasElevation ? 'ready' : null
     };
 
     routes.push(route);
@@ -1477,6 +1810,8 @@ function haversineDistance([lat1, lon1], [lat2, lon2]) {
 
 // ============ Keyboard Navigation ============
 document.addEventListener('keydown', function (e) {
+    if (activeModal || e.defaultPrevented) return;
+
     // Escape to exit click mode
     if (e.key === 'Escape' && clickMode) {
         exitClickMode();
@@ -1510,11 +1845,11 @@ function debounce(fn, delay) {
 // Visual feedback for input validation
 function updateInputValidation(input) {
     const value = input.value.trim();
-    const latLngRegex = /^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/;
+    const latLng = parseLatLngInput(value);
 
     input.classList.remove('valid-coords', 'has-text');
 
-    if (latLngRegex.test(value)) {
+    if (latLng && isValidLatLng(latLng)) {
         input.classList.add('valid-coords');
     } else if (value.length > 0) {
         input.classList.add('has-text');
@@ -1577,6 +1912,9 @@ function toggleColorDropdown() {
     const swatch = document.getElementById('colorSwatch');
     const isVisible = dropdown.classList.toggle('visible');
     swatch.setAttribute('aria-expanded', isVisible);
+    if (isVisible) {
+        document.querySelector('.color-option.selected')?.focus();
+    }
 }
 
 function closeColorDropdown() {
@@ -1604,6 +1942,58 @@ function selectColor(idx) {
     });
 
     closeColorDropdown();
+    document.getElementById('colorSwatch').focus();
+}
+
+function moveColorSelection(direction) {
+    const nextIndex = (selectedColorIndex + direction + COLOR_PALETTE.length) % COLOR_PALETTE.length;
+    selectColor(nextIndex);
+    const dropdown = document.getElementById('colorDropdown');
+    dropdown.classList.add('visible');
+    document.getElementById('colorSwatch').setAttribute('aria-expanded', 'true');
+    document.querySelector(`.color-option[data-color-index="${nextIndex}"]`)?.focus();
+}
+
+function handleColorPickerKeydown(event) {
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        moveColorSelection(1);
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        moveColorSelection(-1);
+    } else if (event.key === 'Escape') {
+        closeColorDropdown();
+        document.getElementById('colorSwatch').focus();
+    } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggleColorDropdown();
+    }
+}
+
+function closeVisibleTooltips() {
+    document.querySelectorAll('.tooltip-text.visible').forEach(tooltip => tooltip.classList.remove('visible'));
+}
+
+function setupInfoTooltips() {
+    document.querySelectorAll('.info-tooltip').forEach(button => {
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            const tooltip = document.getElementById(button.getAttribute('aria-describedby'));
+            const shouldShow = tooltip && !tooltip.classList.contains('visible');
+            closeVisibleTooltips();
+            if (shouldShow) tooltip.classList.add('visible');
+        });
+        button.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                closeVisibleTooltips();
+                button.focus();
+            }
+        });
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('.info-wrapper')) closeVisibleTooltips();
+    });
 }
 
 function getNextColor() {
@@ -1711,6 +2101,8 @@ document.querySelectorAll('[data-gps-field]').forEach(btn => {
 document.getElementById('addStopBtn').addEventListener('click', () => addStop());
 document.getElementById('reverseRouteBtn').addEventListener('click', reverseRoute);
 document.getElementById('colorSwatch').addEventListener('click', toggleColorDropdown);
+document.getElementById('colorSwatch').addEventListener('keydown', handleColorPickerKeydown);
+document.getElementById('colorOptions').addEventListener('keydown', handleColorPickerKeydown);
 document.getElementById('unitKm').addEventListener('click', () => setUnit('km'));
 document.getElementById('unitMi').addEventListener('click', () => setUnit('mi'));
 document.getElementById('getRouteBtn').addEventListener('click', getRoute);
@@ -1718,14 +2110,28 @@ document.getElementById('downloadAllBtn').addEventListener('click', downloadAllR
 document.getElementById('clearAllBtn').addEventListener('click', clearAllRoutes);
 document.getElementById('apiKeyMapBtn').addEventListener('click', openApiKeyModal);
 document.getElementById('clickModeBtn').addEventListener('click', toggleClickMode);
+document.getElementById('cancelClickModeBtn')?.addEventListener('click', exitClickMode);
 document.getElementById('locateMeBtn').addEventListener('click', locateMe);
 document.getElementById('closeModalBtn').addEventListener('click', closeApiKeyModal);
 document.getElementById('saveApiKeyBtn').addEventListener('click', saveApiKey);
+document.getElementById('rememberApiKey')?.addEventListener('change', updateApiKeyStorageHint);
 document.getElementById('cancelFilenameBtn').addEventListener('click', closeFilenameModal);
 document.getElementById('confirmFilenameBtn').addEventListener('click', confirmFilenameDownload);
+document.querySelectorAll('[data-map-pick-target]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const target = btn.dataset.mapPickTarget;
+        const flow = btn.dataset.mapPickFlow || 'single';
+        if (clickMode === target && clickModeFlow === flow) {
+            exitClickMode();
+            return;
+        }
+        enterClickMode(target, flow);
+    });
+});
 
 // ============ Initialize ============
 selectRandomColor(); // Pick initial random color
+setupInfoTooltips();
 setupImport();
 setupFogOfWorld();
 loadFromStorage();

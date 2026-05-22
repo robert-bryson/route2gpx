@@ -19,6 +19,8 @@ const FOW_BLOCK_EXTRA_DATA = 3;
 const FOW_BLOCK_SIZE = FOW_BLOCK_BITMAP_SIZE + FOW_BLOCK_EXTRA_DATA; // 515
 const FOW_BITMAP_WIDTH_OFFSET = 6;
 const FOW_BITMAP_WIDTH = 1 << FOW_BITMAP_WIDTH_OFFSET; // 64
+const FOW_MAX_ZIP_BYTES = 250 * 1024 * 1024;
+const FOW_MAX_DECOMPRESSED_BYTES = 512 * 1024 * 1024;
 
 // ============ Block ============
 class FowBlock {
@@ -134,14 +136,23 @@ class FogMap {
 async function parseFogOfWorldZip(arrayBuffer) {
     const zip = await JSZip.loadAsync(arrayBuffer);
     const tileFiles = [];
+    let totalBytes = 0;
 
     const entries = Object.entries(zip.files);
     for (const [path, file] of entries) {
         if (file.dir) continue;
+        const declaredSize = file._data?.uncompressedSize;
+        if (Number.isFinite(declaredSize) && totalBytes + declaredSize > FOW_MAX_DECOMPRESSED_BYTES) {
+            throw new Error('Fog of World ZIP is too large after decompression.');
+        }
         // Strip directory prefix, keep just filename
         const filename = path.replace(/^.*[\\/]/, '');
         if (!filename) continue;
         const data = await file.async('arraybuffer');
+        totalBytes += data.byteLength;
+        if (totalBytes > FOW_MAX_DECOMPRESSED_BYTES) {
+            throw new Error('Fog of World ZIP is too large after decompression.');
+        }
         tileFiles.push([filename, data]);
     }
 
@@ -372,6 +383,16 @@ async function handleFogOfWorldFile(file) {
     showStatus('Loading Fog of World data...');
 
     try {
+        if (!isFogOfWorldZip(file)) {
+            throw new Error('Fog of World import requires a .zip export.');
+        }
+        if (typeof assertFileSize === 'function') {
+            assertFileSize(file, FOW_MAX_ZIP_BYTES, file.name);
+        } else if (file.size > FOW_MAX_ZIP_BYTES) {
+            throw new Error('Fog of World ZIP is too large.');
+        }
+        if (typeof ensureJSZip === 'function') await ensureJSZip();
+        if (typeof ensurePako === 'function') await ensurePako();
         const arrayBuffer = await file.arrayBuffer();
         const fogMap = await parseFogOfWorldZip(arrayBuffer);
         const tileCount = fogMap.tiles.size;
@@ -383,9 +404,9 @@ async function handleFogOfWorldFile(file) {
 
         addFogOfWorldLayer(fogMap);
         showStatus(`Fog of World loaded: ${tileCount} tile(s)`);
-    } catch (e) {
-        console.error('Failed to load Fog of World data:', e);
-        showStatus('Failed to load Fog of World data: ' + e.message, true);
+    } catch (error) {
+        console.error('Failed to load Fog of World data:', error.message);
+        showStatus('Failed to load Fog of World data: ' + error.message, true);
     }
 }
 
@@ -399,8 +420,8 @@ function isFogOfWorldZip(file) {
 function setupFogOfWorld() {
     const dropZone = document.getElementById('fogDropZone');
     const fileInput = document.getElementById('fogFileInput');
+    if (typeof setupGlobalFileDropGuard === 'function') setupGlobalFileDropGuard();
 
-    dropZone.addEventListener('click', () => fileInput.click());
     dropZone.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
     });
@@ -408,6 +429,7 @@ function setupFogOfWorld() {
     dropZone.addEventListener('dragover', (e) => {
         e.preventDefault();
         e.stopPropagation();
+        e.dataTransfer.dropEffect = 'copy';
         dropZone.classList.add('drag-over');
     });
     dropZone.addEventListener('dragleave', (e) => {
