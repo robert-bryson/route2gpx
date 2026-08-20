@@ -24,7 +24,7 @@
   },
   "homepage": "https://route2gpx.rsmb.tv/",
   "devDependencies": {
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "jsdom": "^30.0.1",
     "vitest": "^4.1.10"
   }
