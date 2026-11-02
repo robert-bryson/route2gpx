@@ -4,6 +4,12 @@ const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
 
+const cartoApiKey = (process.env.CARTO_API_KEY || '').trim();
+if (process.env.AWS_APP_ID && !cartoApiKey) {
+    console.error('CARTO_API_KEY must be set in the Amplify build environment.');
+    process.exit(1);
+}
+
 const dist = path.join(__dirname, 'dist');
 
 // Clean & create dist
@@ -18,6 +24,9 @@ const bundle = esbuild.buildSync({
     minify: true,
     platform: 'browser',
     format: 'iife',
+    define: {
+        __CARTO_API_KEY__: JSON.stringify(cartoApiKey),
+    },
     write: false,
     logLevel: 'silent',
 });

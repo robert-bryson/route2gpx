@@ -175,6 +175,15 @@ beforeAll(async () => {
   await import('../app.js?app-test');
 });
 
+describe('basemap initialization', () => {
+  test('loads the unbundled source without a build-time CARTO key', () => {
+    expect(globalThis.L.tileLayer).toHaveBeenCalledWith(
+      'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+      expect.objectContaining({ maxZoom: 19, subdomains: 'abcd' }),
+    );
+  });
+});
+
 // ============ decodePolyline ============
 describe('decodePolyline', () => {
   test('decodes a known encoded polyline', () => {

@@ -47,6 +47,29 @@ npm run build
 
 Run `npm run build` after source changes before static preview or deployment; the build follows the browser ES module graph from `app.js`, writes hashed JavaScript and CSS assets into `dist/`, and rewrites the generated HTML references. The CSP is declared in both `index.html` and the Amplify custom headers in `infra/main.tf`; keep those policies in sync when adding third-party assets.
 
+#### CARTO basemap key
+
+For Amplify deployment:
+
+1. Use a [CARTO Basemaps API key](https://carto.com/basemaps/apikey/).
+2. Set `CARTO_API_KEY` in the Amplify app's build environment variables. Check any overrides for the branch that you deploy.
+3. Restrict the key to the website domains that serve the app.
+4. Run a new Amplify build after you add or change the key.
+
+The build removes leading and trailing whitespace from the key. It puts the key in the browser bundle. Each CARTO tile request includes the encoded value in the `key` query parameter. The key is visible in the browser.
+
+Amplify sets `AWS_APP_ID` in the build environment. When this variable is set, the build stops if `CARTO_API_KEY` is missing or contains only whitespace.
+
+For a local map preview, use a separate key that permits your local website hostname:
+
+```bash
+CARTO_API_KEY=your_basemaps_key npm run build
+```
+
+Local builds can run without a key. In this case, CARTO tiles can show an API key watermark. `npm run build` reads the shell environment; it does not load a `.env` file.
+
+`npm test` uses test keys to check the built tile URL, missing-key errors, and bundle name changes. These tests do not need a CARTO account or network access.
+
 Production elevation lookup uses the Amplify rewrite from `/api/elevation/<path>` to Open-Topo-Data. A plain local file or static dev server does not provide that rewrite, so route calculation, imports, and GPX export work locally while elevation enrichment may show as unavailable unless you run a compatible local proxy.
 
 ---

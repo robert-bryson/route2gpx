@@ -19,6 +19,8 @@ let geolocationRequestId = 0;
 
 const API_KEY_STORAGE_KEY = 'route2gpx_apiKey';
 const API_KEY_MEMORY_KEY = 'route2gpx_apiKey_session';
+// Replaced by esbuild with CARTO_API_KEY from the build environment.
+const CARTO_API_KEY = typeof __CARTO_API_KEY__ === 'string' ? __CARTO_API_KEY__ : '';
 const ROUTES_STORAGE_KEY = 'route2gpx_routes';
 const UNIT_STORAGE_KEY = 'route2gpx_unit';
 const ROUTE_REQUEST_TIMEOUT_MS = 30000;
@@ -130,7 +132,8 @@ const map = L.map('map', {
 });
 
 // Grayscale basemap for better route visibility
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+const cartoTileUrl = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+L.tileLayer(CARTO_API_KEY ? `${cartoTileUrl}?key=${encodeURIComponent(CARTO_API_KEY)}` : cartoTileUrl, {
     attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> contributors, © <a href="https://carto.com/">CARTO</a>',
     maxZoom: 19,
     subdomains: 'abcd'
