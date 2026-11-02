@@ -6,29 +6,7 @@ resource "aws_amplify_app" "route2gpx" {
   access_token             = var.github_token
   enable_branch_auto_build = true
 
-  custom_headers = <<-HEADERS
-    customHeaders:
-      - pattern: '**'
-        headers:
-          - key: 'X-Content-Type-Options'
-            value: 'nosniff'
-          - key: 'X-Frame-Options'
-            value: 'DENY'
-          - key: 'Referrer-Policy'
-            value: 'strict-origin-when-cross-origin'
-          - key: 'Cache-Control'
-            value: 'public, max-age=3600'
-          - key: 'Strict-Transport-Security'
-            value: 'max-age=31536000; includeSubDomains'
-          - key: 'Permissions-Policy'
-            value: 'geolocation=(self), camera=(), microphone=()'
-          - key: 'Content-Security-Policy'
-            value: "default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' https://unpkg.com; img-src 'self' data: https://*.basemaps.cartocdn.com https://unpkg.com; connect-src 'self' https://routes.googleapis.com https://maps.googleapis.com; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
-      - pattern: '*.js'
-        headers:
-          - key: 'Cache-Control'
-            value: 'public, max-age=31536000, immutable'
-  HEADERS
+  custom_headers = file("${path.module}/../customHttp.yml")
 
   custom_rule {
     source = "/api/elevation/<*>"

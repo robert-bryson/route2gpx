@@ -1,3 +1,6 @@
+import { parseTCX, parseGeoJSON } from './gps-import.js';
+import { normalizeTrack, MAX_TRACK_POINTS } from './track-data.js';
+
 // ============ FIT File Parser ============
 // Extracts GPS trackpoints from Garmin FIT binary files
 // Reference: Garmin FIT SDK Protocol specification
@@ -24,11 +27,17 @@ function parseFIT(buffer) {
     if (magic !== '.FIT') throw new Error('Not a valid FIT file');
 
     let offset = headerSize;
-    const dataEnd = Math.min(headerSize + dataSize, buffer.byteLength);
+    const dataEnd = headerSize + dataSize;
+    if (dataEnd > buffer.byteLength) throw new Error('Truncated FIT data');
     const definitions = {};
     const records = [];
+    let timestamp = null;
+    const recordPoint = data => {
+        if (records.length >= MAX_TRACK_POINTS) throw new Error('FIT file contains too many track points.');
+        records.push(extractGPSPoint(data) || { lat: null, lng: null, elevation: null, time: null });
+    };
 
-    while (offset < dataEnd && offset < buffer.byteLength - 1) {
+    while (offset < dataEnd) {
         const recordHeader = view.getUint8(offset);
         offset++;
 
@@ -36,18 +45,22 @@ function parseFIT(buffer) {
             // Compressed timestamp header
             const localType = (recordHeader >> 5) & 0x03;
             const def = definitions[localType];
-            if (!def) break;
-            if (offset + def.totalSize > buffer.byteLength) break;
-            const fieldData = readFITFields(view, offset, def);
-            offset += def.totalSize;
+            if (!def) throw new Error('Undefined FIT message');
+            if (offset + def.compressedSize > dataEnd) throw new Error('Truncated FIT record');
+            if (timestamp === null) throw new Error('FIT compressed timestamp has no reference time');
+            const fieldData = readFITFields(view, offset, def, true);
+            offset += def.compressedSize;
+            // Garmin FIT protocol: preserve the upper timestamp bits and roll the low five bits.
+            timestamp += ((recordHeader & 0x1F) - timestamp % 32 + 32) % 32;
+            fieldData[253] = timestamp;
             if (def.globalMessageNumber === 20) {
-                const point = extractGPSPoint(fieldData);
-                if (point) records.push(point);
+                recordPoint(fieldData);
             }
         } else if (recordHeader & 0x40) {
             // Definition message
             const localType = recordHeader & 0x0F;
             const hasDeveloperData = !!(recordHeader & 0x20);
+            if (offset + 5 > dataEnd) throw new Error('Truncated FIT definition');
 
             offset++; // reserved
             const architecture = view.getUint8(offset);
@@ -57,6 +70,7 @@ function parseFIT(buffer) {
             offset += 2;
             const numFields = view.getUint8(offset);
             offset++;
+            if (offset + numFields * 3 > dataEnd) throw new Error('Truncated FIT field definitions');
 
             const fields = [];
             let totalSize = 0;
@@ -70,8 +84,10 @@ function parseFIT(buffer) {
             }
 
             if (hasDeveloperData) {
+                if (offset >= dataEnd) throw new Error('Truncated FIT developer fields');
                 const numDevFields = view.getUint8(offset);
                 offset++;
+                if (offset + numDevFields * 3 > dataEnd) throw new Error('Truncated FIT developer fields');
                 for (let i = 0; i < numDevFields; i++) {
                     const devSize = view.getUint8(offset + 1);
                     offset += 3;
@@ -79,38 +95,41 @@ function parseFIT(buffer) {
                 }
             }
 
-            definitions[localType] = { globalMessageNumber, fields, totalSize, littleEndian };
+            const compressedSize = totalSize - fields.filter(field => field.fieldDefNum === 253).reduce((size, field) => size + field.size, 0);
+            definitions[localType] = { globalMessageNumber, fields, totalSize, compressedSize, littleEndian };
         } else {
             // Data message
             const localType = recordHeader & 0x0F;
             const def = definitions[localType];
-            if (!def) break;
-            if (offset + def.totalSize > buffer.byteLength) break;
+            if (!def) throw new Error('Undefined FIT message');
+            if (offset + def.totalSize > dataEnd) throw new Error('Truncated FIT record');
             const fieldData = readFITFields(view, offset, def);
             offset += def.totalSize;
+            if (Number.isInteger(fieldData[253]) && fieldData[253] >= 0 && fieldData[253] < 0xFFFFFFFF) timestamp = fieldData[253];
 
             if (def.globalMessageNumber === 20) {
-                const point = extractGPSPoint(fieldData);
-                if (point) records.push(point);
+                recordPoint(fieldData);
             }
         }
     }
 
-    if (records.length === 0) {
-        throw new Error('No GPS data found in FIT file');
-    }
-
-    return {
+    const track = normalizeTrack({
         coordinates: records.map(r => [r.lat, r.lng]),
         elevations: records.map(r => r.elevation),
-        name: null
-    };
+        times: records.map(r => r.time),
+        segmentStarts: [0],
+    });
+    if (track.coordinates.length === 0) throw new Error('No GPS data found in FIT file');
+    return { ...track, name: null };
 }
 
-function readFITFields(view, offset, def) {
+function readFITFields(view, offset, def, compressed = false) {
     const data = {};
+    let omitted = 0;
     for (const field of def.fields) {
-        const pos = offset + field.offset;
+        // Compressed headers supply timestamp 253 instead of storing its payload.
+        if (compressed && field.fieldDefNum === 253) { omitted += field.size; continue; }
+        const pos = offset + field.offset - omitted;
         if (pos + field.size > view.byteLength) continue;
         try {
             switch (field.baseType) {
@@ -167,106 +186,9 @@ function extractGPSPoint(data) {
         elevation = data[2] / 5 - 500; // altitude
     }
 
-    return { lat, lng, elevation };
-}
-
-// ============ TCX Parser ============
-// Parses Garmin Training Center XML files
-
-function parseTCX(xmlString) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(xmlString, 'application/xml');
-
-    if (doc.querySelector('parsererror')) {
-        throw new Error('Invalid TCX file');
-    }
-
-    const coordinates = [];
-    const elevations = [];
-
-    const trackpoints = doc.querySelectorAll('Trackpoint');
-
-    trackpoints.forEach(tp => {
-        const pos = tp.querySelector('Position');
-        if (!pos) return;
-
-        const latEl = pos.querySelector('LatitudeDegrees');
-        const lngEl = pos.querySelector('LongitudeDegrees');
-        if (!latEl || !lngEl) return;
-
-        const lat = Number(latEl.textContent);
-        const lng = Number(lngEl.textContent);
-        if (!isValidLatitudeLongitude(lat, lng)) return;
-
-        coordinates.push([lat, lng]);
-
-        const altEl = tp.querySelector('AltitudeMeters');
-        const elevation = altEl ? Number(altEl.textContent) : null;
-        elevations.push(Number.isFinite(elevation) ? elevation : null);
-    });
-
-    if (coordinates.length === 0) throw new Error('No valid trackpoints found in TCX file');
-
-    let name = null;
-    const notesEl = doc.querySelector('Activity > Notes');
-    if (notesEl) name = notesEl.textContent.trim();
-    if (!name) {
-        const idEl = doc.querySelector('Activity > Id');
-        if (idEl) name = idEl.textContent.trim();
-    }
-
-    return { coordinates, elevations, name };
-}
-
-// ============ GeoJSON Parser ============
-
-function parseGeoJSON(jsonString) {
-    const geojson = JSON.parse(jsonString);
-    const coordinates = [];
-    const elevations = [];
-
-    function extractCoord(coord) {
-        if (Array.isArray(coord) && typeof coord[0] === 'number' && typeof coord[1] === 'number' &&
-            isValidLatitudeLongitude(coord[1], coord[0])) {
-            coordinates.push([coord[1], coord[0]]); // GeoJSON is [lng, lat], we use [lat, lng]
-            elevations.push(coord.length >= 3 && Number.isFinite(coord[2]) ? coord[2] : null);
-        }
-    }
-
-    function processCoordArray(coords) {
-        if (!Array.isArray(coords)) return;
-        if (typeof coords[0] === 'number') {
-            extractCoord(coords);
-        } else {
-            coords.forEach(c => processCoordArray(c));
-        }
-    }
-
-    function processGeometry(geometry) {
-        if (!geometry || !geometry.coordinates) return;
-        processCoordArray(geometry.coordinates);
-    }
-
-    if (geojson.type === 'FeatureCollection') {
-        (geojson.features || []).forEach(f => processGeometry(f.geometry));
-    } else if (geojson.type === 'Feature') {
-        processGeometry(geojson.geometry);
-    } else if (geojson.coordinates) {
-        processGeometry(geojson);
-    }
-
-    if (coordinates.length === 0) throw new Error('No valid coordinates found in GeoJSON');
-
-    let name = null;
-    if (geojson.type === 'Feature' && geojson.properties?.name) {
-        name = geojson.properties.name;
-    } else if (geojson.type === 'FeatureCollection' && geojson.features?.[0]?.properties?.name) {
-        name = geojson.features[0].properties.name;
-    } else if (geojson.name) {
-        name = geojson.name;
-    }
-
-    return { coordinates, elevations, name };
+    const timestamp = data[253];
+    const time = Number.isFinite(timestamp) && timestamp !== 0xFFFFFFFF ? new Date((timestamp + FIT_EPOCH_OFFSET) * 1000).toISOString() : null;
+    return { lat, lng, elevation, time };
 }
 
 Object.assign(globalThis, {

@@ -168,7 +168,7 @@ class TestCli:
         monkeypatch.setenv("GOOGLE_ROUTES_API_KEY", "test-key")
         response = mock.Mock(status_code=200, text="")
         response.json.return_value = {
-            "routes": [{"polyline": {"encodedPolyline": "_p~iF~ps|U"}}]
+            "routes": [{"polyline": {"encodedPolyline": "_p~iF~ps|U_ulLnnqC"}}]
         }
 
         with mock.patch("route2gpx.requests.post", return_value=response) as post:
@@ -185,9 +185,88 @@ class TestCli:
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("GOOGLE_ROUTES_API_KEY", raising=False)
 
-        with mock.patch("route2gpx.requests.post") as post:
+        with (
+            mock.patch("route2gpx.load_dotenv"),
+            mock.patch("route2gpx.requests.post") as post,
+        ):
             exit_code = route2gpx.main(["Origin", "Destination", "DRIVE"])
 
         assert exit_code == 1
         assert "GOOGLE_ROUTES_API_KEY" in capsys.readouterr().err
         post.assert_not_called()
+
+
+class TestOutputIntegrity:
+    @pytest.mark.parametrize("encoded", ["", None, 0])
+    def test_rejects_empty_or_nonstring_route_geometry(self, encoded):
+        with pytest.raises(route2gpx.Route2GpxError, match="invalid response"):
+            route2gpx.extract_encoded_polyline(
+                {"routes": [{"polyline": {"encodedPolyline": encoded}}]}
+            )
+
+    def test_explicit_naive_start_time_uses_utc(self):
+        content = route2gpx.generate_gpx(
+            "A", "B", [(1, 1), (2, 2)], start_time=datetime(2026, 11, 2, 10, 30)
+        )
+        assert "2026-11-02T10:30:00Z" in content
+
+    def test_rejects_single_point_route_before_writing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GOOGLE_ROUTES_API_KEY", "test-key")
+        with mock.patch(
+            "route2gpx.fetch_route_data",
+            return_value={"routes": [{"polyline": {"encodedPolyline": "_p~iF~ps|U"}}]},
+        ):
+            with pytest.raises(route2gpx.Route2GpxError, match="at least two"):
+                route2gpx.convert_route("A", "B", "DRIVE", output_dir=tmp_path)
+        assert not list(tmp_path.iterdir())
+
+    def test_cli_reports_output_filesystem_error(self, tmp_path, capsys):
+        target = tmp_path / "missing-directory" / "output.gpx"
+        with (
+            mock.patch("route2gpx.load_dotenv"),
+            mock.patch("route2gpx.get_api_key", return_value="test-key"),
+            mock.patch(
+                "route2gpx.fetch_route_data",
+                return_value={
+                    "routes": [{"polyline": {"encodedPolyline": "_p~iF~ps|U_ulLnnqC"}}]
+                },
+            ),
+        ):
+            result = route2gpx.main(["A", "B", "DRIVE", "--output", str(target)])
+        assert result == 1
+        assert "Could not write GPX file" in capsys.readouterr().err
+        assert not target.exists()
+
+    def test_omits_unknown_elevation_and_unrequested_timestamps(self):
+        content = route2gpx.generate_gpx("A", "B", [(1, 1), (2, 2)])
+        assert "<ele>" not in content
+        assert "<time>" not in content
+
+    def test_rejects_invalid_coordinates(self):
+        with pytest.raises(route2gpx.Route2GpxError, match="invalid coordinates"):
+            route2gpx.generate_gpx("A", "B", [(95, 0), (1, 1)])
+
+    def test_wraps_malformed_polyline(self, monkeypatch):
+        monkeypatch.setenv("GOOGLE_ROUTES_API_KEY", "test-key")
+        with mock.patch(
+            "route2gpx.fetch_route_data",
+            return_value={"routes": [{"polyline": {"encodedPolyline": "_"}}]},
+        ):
+            with pytest.raises(route2gpx.Route2GpxError, match="malformed"):
+                route2gpx.convert_route("A", "B", "DRIVE")
+
+    def test_requires_force_to_overwrite(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GOOGLE_ROUTES_API_KEY", "test-key")
+        target = tmp_path / "custom.gpx"
+        target.write_text("original")
+        with mock.patch(
+            "route2gpx.fetch_route_data",
+            return_value={
+                "routes": [{"polyline": {"encodedPolyline": "_p~iF~ps|U_ulLnnqC"}}]
+            },
+        ):
+            with pytest.raises(route2gpx.Route2GpxError, match="already exists"):
+                route2gpx.convert_route("A", "B", "DRIVE", output_file=target)
+            assert target.read_text() == "original"
+            route2gpx.convert_route("A", "B", "DRIVE", output_file=target, force=True)
+            assert "<gpx" in target.read_text()

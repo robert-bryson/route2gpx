@@ -18,18 +18,17 @@
         content="Convert routes to GPX files for GPS devices. Runs entirely in your browser.">
     <link rel="canonical" href="https://route2gpx.rsmb.tv">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' https://unpkg.com; img-src 'self' data: https://*.basemaps.cartocdn.com https://unpkg.com; connect-src 'self' https://routes.googleapis.com https://maps.googleapis.com; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'">
-    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+        content="__CONTENT_SECURITY_POLICY__">
     <link rel="preconnect" href="https://routes.googleapis.com" crossorigin>
     <link rel="preconnect" href="https://maps.googleapis.com" crossorigin>
     <link rel="dns-prefetch" href="https://basemaps.cartocdn.com">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
+    <link rel="stylesheet" href="vendor/leaflet.css"
+        integrity="__LEAFLET_CSS_SRI__" crossorigin="anonymous" />
     <link rel="stylesheet" href="styles.css">
 </head>
 
-<body>
+<body data-mobile-view="planner">
     <noscript>
         <div class="noscript-message">
             <h1>Route to GPX</h1>
@@ -49,7 +48,11 @@
                         ?
                     </button>
                 </div>
-                <p class="subtitle">Convert routes to GPX files for GPS devices</p>
+                <p class="subtitle">Plan a route or import a GPS track</p>
+                <div class="header-actions">
+                    <button type="button" class="btn-outline btn-small" data-action="browse-import">Import GPS file</button>
+                    <button type="button" class="btn-outline btn-small" data-action="open-api-key">API key</button>
+                </div>
                 <div id="fogBadge" class="fog-badge" hidden>
                     <label class="fog-badge-label">
                         <input type="checkbox" id="fogVisibilityToggle" checked />
@@ -66,11 +69,7 @@
             <div id="helpContent" class="help-content" role="region" aria-labelledby="help-heading">
                 <h3 id="help-heading"><span class="icon-label"><span class="ui-icon" data-icon="lock"
                             data-icon-class="icon-sm" aria-hidden="true"></span> Privacy First</span></h3>
-                <p>This app runs <strong>entirely in your browser</strong>. There is no server — your API key and routes
-                    are
-                    kept in your browser and are never transmitted anywhere except directly to Google's API. You can
-                    keep
-                    your key for this tab only or remember it on this browser.</p>
+                <p>Files are processed locally and saved in this browser. Route calculations send your locations and API key directly to Google. Optional place labels also use Google. Elevation coordinates go through this site's proxy to Open Topo Data, and map tiles come from CARTO. Keep your key for this tab or choose to remember it.</p>
 
                 <h3><span class="icon-label"><span class="ui-icon" data-icon="keyboard" data-icon-class="icon-sm"
                             aria-hidden="true"></span> Keyboard Shortcuts</span></h3>
@@ -141,6 +140,43 @@
                         </div>
                     </div>
 
+                <div class="form-group waypoints-panel">
+                    <div class="field-label-row">
+                        <span id="waypoints-label" class="field-label">Waypoints</span>
+                        <span id="waypointHint" class="field-hint" aria-live="polite">0/25 waypoints</span>
+                        <span class="info-wrapper">
+                            <button type="button" class="info-tooltip" aria-label="More information about waypoints"
+                                aria-describedby="waypoints-help">
+                                <span class="ui-icon" data-icon="info" aria-hidden="true"></span>
+                            </button>
+                            <span class="tooltip-text" id="waypoints-help" role="tooltip">
+                                Add intermediate stops — the route will pass through each in order. Great for scenic
+                                routes
+                                or multi-stop trips.
+                            </span>
+                        </span>
+                    </div>
+                    <div class="stops-container" id="stopsContainer" role="list" aria-labelledby="waypoints-label">
+                    </div>
+                    <div class="waypoint-buttons">
+                        <button type="button" class="btn-outline btn-small" id="addStopBtn" aria-label="Add a waypoint"
+                            title="Add a stop along your route">
+                            <span class="icon-label"><span class="ui-icon" data-icon="plus" data-icon-class="icon-sm"
+                                    aria-hidden="true"></span> Add</span>
+                        </button>
+                        <button type="button" class="btn-outline btn-small map-pick-btn" id="pickWaypointMapBtn"
+                            data-map-pick-target="waypoint" data-map-pick-flow="route" aria-pressed="false"
+                            aria-label="Add waypoints by clicking the map" title="Add waypoints by clicking the map">
+                            <span class="ui-icon" data-icon="crosshair" aria-hidden="true"></span>
+                        </button>
+                        <button type="button" class="btn-outline btn-small" id="reverseRouteBtn"
+                            aria-label="Reverse the route direction" title="Swap origin ↔ destination">
+                            <span class="icon-label"><span class="ui-icon" data-icon="refresh-cw"
+                                    data-icon-class="icon-sm" aria-hidden="true"></span> Reverse</span>
+                        </button>
+                    </div>
+                </div>
+
                     <div class="form-group route-field-row">
                         <span class="route-field-marker destination-marker" aria-hidden="true"></span>
                         <div class="route-field-main">
@@ -181,42 +217,6 @@
                     </div>
                 </div>
 
-                <div class="form-group waypoints-panel">
-                    <div class="field-label-row">
-                        <span id="waypoints-label" class="field-label">Waypoints</span>
-                        <span class="info-wrapper">
-                            <button type="button" class="info-tooltip" aria-label="More information about waypoints"
-                                aria-describedby="waypoints-help">
-                                <span class="ui-icon" data-icon="info" aria-hidden="true"></span>
-                            </button>
-                            <span class="tooltip-text" id="waypoints-help" role="tooltip">
-                                Add intermediate stops — the route will pass through each in order. Great for scenic
-                                routes
-                                or multi-stop trips.
-                            </span>
-                        </span>
-                    </div>
-                    <div class="stops-container" id="stopsContainer" role="list" aria-labelledby="waypoints-label">
-                    </div>
-                    <div class="waypoint-buttons">
-                        <button type="button" class="btn-outline btn-small" id="addStopBtn" aria-label="Add a waypoint"
-                            title="Add a stop along your route">
-                            <span class="icon-label"><span class="ui-icon" data-icon="plus" data-icon-class="icon-sm"
-                                    aria-hidden="true"></span> Add</span>
-                        </button>
-                        <button type="button" class="btn-outline btn-small map-pick-btn" id="pickWaypointMapBtn"
-                            data-map-pick-target="waypoint" data-map-pick-flow="route" aria-pressed="false"
-                            aria-label="Add waypoints by clicking the map" title="Add waypoints by clicking the map">
-                            <span class="ui-icon" data-icon="crosshair" aria-hidden="true"></span>
-                        </button>
-                        <button type="button" class="btn-outline btn-small" id="reverseRouteBtn"
-                            aria-label="Reverse the route direction" title="Swap origin ↔ destination">
-                            <span class="icon-label"><span class="ui-icon" data-icon="refresh-cw"
-                                    data-icon-class="icon-sm" aria-hidden="true"></span> Reverse</span>
-                        </button>
-                    </div>
-                </div>
-
                 <div class="inline-group mode-color-row">
                     <div class="form-group mode-form-group">
                         <span class="field-label" id="travelModeLabel">Mode</span>
@@ -249,7 +249,7 @@
                         <span class="field-label" id="routeColorLabel">Color</span>
                         <div class="color-picker-wrapper">
                             <button type="button" id="colorSwatch" class="color-swatch route-color-0" aria-label="Choose route color"
-                                aria-haspopup="dialog" aria-expanded="false" aria-controls="colorDropdown"
+                                aria-expanded="false" aria-controls="colorDropdown"
                                 title="Choose route color"></button>
                             <input type="hidden" id="routeColor" value="#ff4757" />
                             <div class="color-dropdown" id="colorDropdown" aria-hidden="true">
@@ -260,13 +260,37 @@
                     </div>
                 </div>
 
-                <button id="getRouteBtn" title="Calculate route (Enter or ⌘/Ctrl+Enter)">
+                <div class="route-options">
+                    <label><input type="checkbox" id="fetchElevation" checked> Add elevation (up to 1,000 sampled points)</label>
+                    <label><input type="checkbox" id="labelCoordinates"> Look up place labels for coordinates (Google Geocoding)</label>
+                    <div id="departureTimeGroup" class="form-group" hidden>
+                        <label for="departureTime">Transit departure</label>
+                        <input type="datetime-local" id="departureTime">
+                    </div>
+                </div>
+                <div class="planner-actions">
+                <button type="button" id="getRouteBtn" title="Calculate route (Enter or ⌘/Ctrl+Enter)">
                     Get Route
                 </button>
+                <button type="button" id="cancelRouteBtn" class="btn-outline" hidden>Cancel</button>
+                </div>
 
                 <div id="status" class="status" role="status" aria-live="polite" hidden></div>
             </section>
 
+            <div id="storageWarning" class="persistent-notice error" role="alert" hidden>
+                Your latest changes are not saved in this browser. Export your routes before closing this page.
+                <button type="button" class="btn-outline btn-small" data-action="download-all">Export routes</button>
+            </div>
+            <div id="undoNotice" class="persistent-notice" role="status" hidden>
+                <span id="undoMessage">Route removed.</span>
+                <button type="button" id="undoDeleteBtn" class="btn-outline btn-small">Undo</button>
+            </div>
+            <button type="button" id="cancelImportBtn" class="btn-outline" hidden>Cancel import</button>
+            <details id="importSummary" class="import-summary" hidden>
+                <summary id="importSummaryTitle">Import results</summary>
+                <ul id="importSummaryItems"></ul>
+            </details>
             <hr />
 
             <section class="routes-section" aria-labelledby="routes-heading">
@@ -296,6 +320,10 @@
                     </button>
                 </div>
 
+                <details id="batchExportSummary" class="import-summary" hidden>
+                    <summary>ZIP export data</summary>
+                    <ul id="batchExportItems"></ul>
+                </details>
                 <div class="routes-list" id="routesList" role="list" aria-label="List of routes"></div>
             </section>
 
@@ -348,9 +376,13 @@
             </div>
         </div>
     </main>
+    <nav class="mobile-view-toggle" aria-label="Workspace view">
+        <button type="button" data-mobile-view="planner" aria-pressed="true">Planner &amp; routes</button>
+        <button type="button" data-mobile-view="map" aria-pressed="false">Map</button>
+    </nav>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"
+    <script src="vendor/leaflet.js"
+        integrity="__LEAFLET_JS_SRI__"
         crossorigin="anonymous"></script>
     <script src="app.bundle.min.js" defer></script>
 
@@ -359,20 +391,21 @@
         tabindex="-1">
         <div class="modal">
             <h2 id="modal-title"><span class="ui-icon" data-icon="key-round" data-icon-class="icon-lg"
-                    aria-hidden="true"></span> API Key Required</h2>
+                    aria-hidden="true"></span> Google API Key</h2>
 
             <p>
                 To calculate routes, you need a <strong>Google Routes API key</strong>.
-                Don't worry — it only takes a few minutes to set up, and Google offers generous free usage.
+                Enable the Routes API and billing in your Google Cloud project. Imports and GPX exports work without a key.
             </p>
 
             <div class="privacy-note">
                 <strong><span class="icon-label"><span class="ui-icon" data-icon="lock" data-icon-class="icon-sm"
-                            aria-hidden="true"></span> 100% Private & Secure</span></strong><br>
+                            aria-hidden="true"></span> Your key stays in your browser</span></strong><br>
                 This app runs entirely in your browser — there is no route server. Your API key is sent directly to
-                Google. Use a website-restricted key limited to the Routes API.
+                Google. Restrict the key to this website and the APIs you enable. Optional elevation lookups send coordinates to Open Topo Data through this site.
             </div>
 
+            <div id="apiKeyError" class="status error" role="alert" hidden></div>
             <div class="form-group">
                 <label for="apiKeyInput">Paste your API Key</label>
                 <input type="password" id="apiKeyInput" placeholder="AIza..." autocomplete="off" autocapitalize="off"
@@ -391,6 +424,7 @@
             <div class="btn-row">
                 <button type="button" class="btn-outline" id="closeModalBtn"
                     aria-label="Close API key dialog">Later</button>
+                <button type="button" class="btn-secondary" id="removeApiKeyBtn">Remove key</button>
                 <button type="button" id="saveApiKeyBtn">Save Key</button>
             </div>
 
@@ -413,9 +447,22 @@
                 <input type="text" id="filenameInput" placeholder="route.gpx" autocomplete="off" />
                 <div class="filename-preview" id="filenamePreview"></div>
             </div>
+            <p id="exportDataHint" class="export-hint"></p>
+            <label class="checkbox-row"><input type="checkbox" id="synthesizeTimes"> Generate new timestamps from route duration. Leave unchecked to preserve recorded times.</label>
             <div class="btn-row">
                 <button type="button" class="btn-outline" id="cancelFilenameBtn">Cancel</button>
                 <button type="button" id="confirmFilenameBtn">Download</button>
+            </div>
+        </div>
+    </div>
+    <div class="modal-overlay" id="renameModal" role="dialog" aria-modal="true" aria-labelledby="rename-title" tabindex="-1">
+        <div class="modal">
+            <h2 id="rename-title">Rename route</h2>
+            <label for="renameInput">Route name</label>
+            <input type="text" id="renameInput" maxlength="200" autocomplete="off">
+            <div class="btn-row">
+                <button type="button" class="btn-outline" id="cancelRenameBtn">Cancel</button>
+                <button type="button" id="confirmRenameBtn">Save name</button>
             </div>
         </div>
     </div>

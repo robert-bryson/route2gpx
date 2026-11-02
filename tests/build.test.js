@@ -9,13 +9,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
+import { createHash } from 'node:crypto';
+import { parse } from 'yaml';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 const projectRoot = fileURLToPath(new URL('../', import.meta.url));
 const tileTemplate = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
 const buildInputs = [
   'build.js', 'app.js', 'parsers.js', 'fog.js', 'icons.js',
-  'styles.css', 'index.html', 'robots.txt', 'favicon.svg',
+  'track-data.js', 'gpx.js', 'gps-import.js', 'google-routes.js', 'network.js', 'elevation.js', 'compression.js', 'route-storage.js', 'route-map.js', 'import-worker.js', 'import-client.js',
+  'customHttp.yml', 'styles.css', 'index.html', 'robots.txt', 'favicon.svg',
 ];
 const unconfiguredKeys = [
   ['missing', {}],
@@ -77,6 +80,23 @@ function readBasemapUrl(source) {
 }
 
 describe('CARTO build configuration', () => {
+  test('self-hosts runtime assets with matching integrity and the shared CSP', () => {
+    expect(runBuild().status).toBe(0);
+    const bundle = readBuild();
+    expect(bundle.html).not.toContain('unpkg.com');
+    expect(bundle.source).not.toContain('unpkg.com');
+    expect(bundle.html).not.toMatch(/__[A-Z_]+__/);
+    const assets = [...bundle.html.matchAll(/(?:src|href)="(vendor\/[^"]+)"\s+integrity="(sha384-[^"]+)"/g)];
+    expect(assets).toHaveLength(2);
+    for (const match of assets) {
+      const bytes = readFileSync(join(workspace, 'dist', match[1]));
+      expect(match[2]).toBe(`sha384-${createHash('sha384').update(bytes).digest('base64')}`);
+    }
+    const policy = parse(readFileSync(join(workspace, 'customHttp.yml'), 'utf8')).customHeaders[0].headers.find(header => header.key === 'Content-Security-Policy').value;
+    expect(bundle.html).toContain(policy.replace("; frame-ancestors 'none'", ''));
+    expect(readdirSync(join(workspace, 'dist')).some(name => /^import-worker\.[a-f0-9]+\.js$/.test(name))).toBe(true);
+  });
+
   test.each(unconfiguredKeys)('rejects a %s key in Amplify before removing existing artifacts', (_, environment) => {
     mkdirSync(join(workspace, 'dist'));
     const existingArtifact = join(workspace, 'dist', 'previous-build.txt');

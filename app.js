@@ -1,4 +1,14 @@
 import { parseFIT, parseTCX, parseGeoJSON } from './parsers.js';
+import { parseGPX, parseKML } from './gps-import.js';
+import { normalizeTrack, numericValue, haversineDistance, trackDistance } from './track-data.js';
+import { generateGPX as serializeGPX, escapeXml, sanitizeFilename, uniqueGpxFilenames } from './gpx.js';
+import { computeRoute, validateRouteRequest, MAX_WAYPOINTS } from './google-routes.js';
+import { requestJson } from './network.js';
+import { createElevationClient } from './elevation.js';
+import { inflateBoundedAsync } from './compression.js';
+import { createRouteStorage } from './route-storage.js';
+import { canUseImportWorker, readInWorker } from './import-client.js';
+import { createRouteMap } from './route-map.js';
 import { setupFogOfWorld } from './fog.js';
 import { iconSvg, getModeIconName, getModeIconSvg, renderIconPlaceholders } from './icons.js';
 
@@ -8,31 +18,38 @@ let clickMode = null; // null, 'origin', 'destination', 'waypoint'
 let clickModeFlow = 'single'; // 'single' or 'route'
 let distanceUnit = 'km';
 let previewMarkers = [];
+let completedPlannerPoints = null;
+let completedPlannerRouteId = null;
 let activeModal = null;
 let activeModalReturnFocus = null;
+let activeModalReturnRoute = null;
 let statusTimer = null;
 let pendingMapClickPrompt = null;
 let activeRoutePopup = null;
 let suppressNextMapClickForPopup = false;
 let storageWarningShown = false;
 let geolocationRequestId = 0;
+let routeRequestController = null;
+let lastRouteId = Date.now();
+let deletedRoutes = [];
+let routeListBatch = false;
+let routesDirty = false;
+let draftTimer = null;
+let undoTimer = null;
+let renameRouteId = null;
+let importController = null;
 
 const API_KEY_STORAGE_KEY = 'route2gpx_apiKey';
 const API_KEY_MEMORY_KEY = 'route2gpx_apiKey_session';
 // Replaced by esbuild with CARTO_API_KEY from the build environment.
 const CARTO_API_KEY = typeof __CARTO_API_KEY__ === 'string' ? __CARTO_API_KEY__ : '';
-const ROUTES_STORAGE_KEY = 'route2gpx_routes';
+const routeStorage = createRouteStorage();
 const UNIT_STORAGE_KEY = 'route2gpx_unit';
-const ROUTE_REQUEST_TIMEOUT_MS = 30000;
-const ELEVATION_REQUEST_TIMEOUT_MS = 20000;
+const DRAFT_STORAGE_KEY = 'route2gpx_draft';
+const elevationClient = createElevationClient();
 const REVERSE_GEOCODE_REQUEST_TIMEOUT_MS = 8000;
 const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_DECOMPRESSED_IMPORT_BYTES = 120 * 1024 * 1024;
-const ROUTE_LINE_WEIGHT = 4;
-const ROUTE_LINE_OPACITY = 0.8;
-const OLDER_ROUTE_LINE_OPACITY = 0.56;
-const HIGHLIGHT_ROUTE_LINE_WEIGHT = 7;
-const HIGHLIGHT_ROUTE_LINE_OPACITY = 1;
 const OLDER_ROUTE_ENDPOINT_DOT_SIZE = 8;
 
 const CLICK_MODE_COPY = {
@@ -53,13 +70,13 @@ const CLICK_MODE_COPY = {
 const THIRD_PARTY_SCRIPTS = {
     jszip: {
         globalName: 'JSZip',
-        src: 'https://unpkg.com/jszip@3.10.1/dist/jszip.min.js',
-        integrity: 'sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG'
+        src: typeof __JSZIP_URL__ === 'string' ? __JSZIP_URL__ : 'vendor/jszip.min.js',
+        integrity: typeof __JSZIP_INTEGRITY__ === 'string' ? __JSZIP_INTEGRITY__ : ''
     },
     pako: {
         globalName: 'pako',
-        src: 'https://unpkg.com/pako@2.1.0/dist/pako.min.js',
-        integrity: 'sha384-rNlaE5fs9dGIjmxWDALQh/RBAaGRYT5ChrzHo6tRfgrZ36iRFAiquP5g41Jsv+0j'
+        src: typeof __PAKO_URL__ === 'string' ? __PAKO_URL__ : 'vendor/pako.min.js',
+        integrity: typeof __PAKO_INTEGRITY__ === 'string' ? __PAKO_INTEGRITY__ : ''
     }
 };
 const loadingScripts = new Map();
@@ -139,6 +156,8 @@ L.tileLayer(CARTO_API_KEY ? `${cartoTileUrl}?key=${encodeURIComponent(CARTO_API_
     subdomains: 'abcd'
 }).addTo(map);
 
+const routeMap = createRouteMap({ map, leaflet: L, markerIcon: createEndpointMarkerIcon, popupContent: createRoutePopup, onHighlight: highlightRouteListItem });
+
 // ============ LocalStorage ============
 function loadFromStorage() {
     try {
@@ -149,22 +168,52 @@ function loadFromStorage() {
         }
 
         // Saved routes
-        const savedRoutes = localStorage.getItem(ROUTES_STORAGE_KEY);
-        if (savedRoutes) {
-            const routeData = JSON.parse(savedRoutes);
+        const routeData = routeStorage.load(localStorage, () => console.warn('Skipping corrupt saved geometry.'));
+        if (routeData.length) {
             if (!Array.isArray(routeData)) throw new Error('Saved routes payload is not an array');
             let restoredCount = 0;
+            routeListBatch = true;
             routeData.forEach(data => {
                 if (restoreRoute(data)) restoredCount++;
             });
+            routeListBatch = false;
+            updateRouteMapStyles();
+            renderRoutesList();
             updateBulkButtons();
+            fitVisibleRoutes();
             if (restoredCount > 0) {
                 showStatus(`Restored ${restoredCount} route(s) from previous session`);
             }
         }
     } catch (error) {
+        routeListBatch = false;
         console.error('Failed to restore from storage:', error.message);
+        showStatus('Some saved routes could not be restored. Export any routes you need before clearing browser storage.', true);
     }
+}
+
+function routeSnapshot(route) {
+    return {
+        id: route.id,
+        name: route.name,
+        origin: route.origin,
+        destination: route.destination,
+        stops: normalizeStops(route.stops),
+        travelMode: route.travelMode,
+        color: route.color,
+        coordinates: route.coordinates,
+        elevations: route.elevations || null,
+        times: route.times || null,
+        segmentStarts: route.segmentStarts || [0],
+        source: route.source || 'legacy',
+        createdAt: route.createdAt || null,
+        request: route.request || null,
+        elevationSource: route.elevationSource || null,
+        renamed: route.renamed === true,
+        distance: route.distance,
+        duration: route.duration,
+        visible: route.visible !== false
+    };
 }
 
 function saveToStorage() {
@@ -173,25 +222,27 @@ function saveToStorage() {
         localStorage.setItem(UNIT_STORAGE_KEY, distanceUnit);
 
         // Routes (without Leaflet objects)
-        const routeData = routes.map(r => ({
-            id: r.id,
-            name: r.name,
-            origin: r.origin,
-            destination: r.destination,
-            stops: normalizeStops(r.stops),
-            travelMode: r.travelMode,
-            color: r.color,
-            coordinates: r.coordinates,
-            elevations: r.elevations || null,
-            distance: r.distance,
-            duration: r.duration,
-            visible: r.visible !== false
-        }));
-        localStorage.setItem(ROUTES_STORAGE_KEY, JSON.stringify(routeData));
+        const routeData = routes.map(routeSnapshot);
+        routeStorage.save(localStorage, routeData);
         storageWarningShown = false;
+        routesDirty = false;
+        updateStorageWarning();
+        return true;
     } catch (error) {
+        routesDirty = true;
         notifyStorageFailure(error);
+        updateStorageWarning();
+        return false;
     }
+}
+
+function updateStorageWarning() {
+    const warning = document.getElementById('storageWarning');
+    if (warning) warning.hidden = !routesDirty;
+}
+
+function fitVisibleRoutes() {
+    routeMap.fitVisible();
 }
 
 function isStorageQuotaError(error) {
@@ -223,14 +274,21 @@ function loadExternalScript(scriptConfig) {
 
     const promise = new Promise((resolve, reject) => {
         const script = document.createElement('script');
+        const finish = error => {
+            clearTimeout(timer);
+            script.onload = script.onerror = null;
+            if (error) { script.remove(); reject(error); }
+            else resolve(window[scriptConfig.globalName]);
+        };
+        const timer = setTimeout(() => finish(new Error(`Timed out loading ${scriptConfig.globalName}. Please retry.`)), 15000);
         script.src = scriptConfig.src;
         script.integrity = scriptConfig.integrity;
         script.crossOrigin = 'anonymous';
         script.async = true;
-        script.onload = () => resolve(window[scriptConfig.globalName]);
-        script.onerror = () => reject(new Error(`Failed to load ${scriptConfig.globalName}`));
+        script.onload = () => finish(typeof window[scriptConfig.globalName] === 'undefined' ? new Error(`Failed to initialize ${scriptConfig.globalName}`) : null);
+        script.onerror = () => finish(new Error(`Failed to load ${scriptConfig.globalName}. Please retry.`));
         document.head.appendChild(script);
-    });
+    }).catch(error => { loadingScripts.delete(scriptConfig.globalName); throw error; });
 
     loadingScripts.set(scriptConfig.globalName, promise);
     return promise;
@@ -256,8 +314,7 @@ function assertFileSize(file, maxBytes, label) {
 
 function createRoutePopup(route) {
     const pointCount = route.coordinates.length;
-    const gpxContent = generateGPX(route);
-    const fileSize = formatFileSize(new Blob([gpxContent]).size);
+    const segmentCount = route.segmentStarts?.length || 1;
     const stopCount = route.stops ? route.stops.length : 0;
 
     return `
@@ -272,7 +329,7 @@ function createRoutePopup(route) {
                 ${stopCount > 0 ? `<span>${iconSvg('map-pin', 'icon-sm')} ${stopCount} stop${stopCount > 1 ? 's' : ''}</span>` : ''}
             </div>
             <div class="route-meta route-meta-border">
-                <span>${iconSvg('file-down', 'icon-sm')} ${fileSize}</span>
+                <span>${iconSvg('route', 'icon-sm')} ${segmentCount} segment${segmentCount === 1 ? '' : 's'}</span>
                 <span>${iconSvg('route', 'icon-sm')} ${pointCount.toLocaleString()} points</span>
             </div>
             <div class="popup-actions">
@@ -293,21 +350,6 @@ function formatFileSize(bytes) {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-function bindRoutePopup(polylineLayer, route) {
-    const popup = L.popup({ closeButton: true, className: 'route-popup-container' })
-        .setContent(() => createRoutePopup(route));
-    popup.route2gpxPopupType = 'route';
-
-    polylineLayer.bindPopup(popup);
-
-    // Right-click also opens the popup
-    polylineLayer.on('contextmenu', function (e) {
-        L.DomEvent.stopPropagation(e);
-        L.DomEvent.preventDefault(e);
-        this.openPopup(e.latlng);
-    });
-}
-
 function scrollRouteItemIntoViewIfNeeded(routeItem) {
     const list = document.getElementById('routesList');
     if (!list || !routeItem || !list.contains(routeItem) || list.clientHeight === 0) return;
@@ -325,66 +367,11 @@ function scrollRouteItemIntoViewIfNeeded(routeItem) {
     }
 }
 
-function bindRouteHoverEffects(route) {
-    const { polylineLayer, markers, name, origin, destination } = route;
-
-    // Tooltip for polyline (route name)
-    polylineLayer.bindTooltip(escapeHtml(name), {
-        sticky: true,
-        className: 'route-tooltip'
-    });
-
-    // Tooltip for start marker (origin)
-    if (markers[0]) {
-        markers[0].bindTooltip(`Start: ${escapeHtml(origin)}`, {
-            className: 'route-tooltip'
-        });
-    }
-
-    // Tooltip for end marker (destination)
-    if (markers[1]) {
-        markers[1].bindTooltip(`End: ${escapeHtml(destination)}`, {
-            className: 'route-tooltip'
-        });
-    }
-
-    // Hover highlight function
-    const highlightRoute = () => {
-        polylineLayer.setStyle({ weight: HIGHLIGHT_ROUTE_LINE_WEIGHT, opacity: HIGHLIGHT_ROUTE_LINE_OPACITY });
-        markers.forEach(m => {
-            if (m._icon) m._icon.classList.add('marker-highlighted');
-        });
-        // Highlight sidebar item
-        const sidebarItem = document.querySelector(`[data-route-id="${route.id}"]`);
-        if (sidebarItem) {
-            sidebarItem.classList.add('highlighted');
-            scrollRouteItemIntoViewIfNeeded(sidebarItem);
-        }
-    };
-
-    const unhighlightRoute = () => {
-        applyRouteMapStyle(route);
-        markers.forEach(m => {
-            if (m._icon) m._icon.classList.remove('marker-highlighted');
-        });
-        // Unhighlight sidebar item
-        const sidebarItem = document.querySelector(`[data-route-id="${route.id}"]`);
-        if (sidebarItem) sidebarItem.classList.remove('highlighted');
-    };
-
-    // Store highlight functions on route for sidebar to use
-    route.highlight = highlightRoute;
-    route.unhighlight = unhighlightRoute;
-
-    // Bind hover events to polyline
-    polylineLayer.on('mouseover', highlightRoute);
-    polylineLayer.on('mouseout', unhighlightRoute);
-
-    // Bind hover events to markers
-    markers.forEach(marker => {
-        marker.on('mouseover', highlightRoute);
-        marker.on('mouseout', unhighlightRoute);
-    });
+function highlightRouteListItem(id, active) {
+    const item = document.querySelector(`.route-item[data-route-id="${id}"]`);
+    if (!item) return;
+    item.classList.toggle('highlighted', active);
+    if (active) scrollRouteItemIntoViewIfNeeded(item);
 }
 
 function escapeHtml(text) {
@@ -415,123 +402,70 @@ function normalizeStops(stops) {
         .filter(Boolean);
 }
 
-function normalizeCoordinate(coordinate) {
-    if (!Array.isArray(coordinate) || coordinate.length < 2) return null;
-    const latitude = Number(coordinate[0]);
-    const longitude = Number(coordinate[1]);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-    if (!isValidLatLng({ latitude, longitude })) return null;
-    return [latitude, longitude];
-}
-
-function normalizeCoordinates(coordinates) {
-    if (!Array.isArray(coordinates)) return [];
-    return coordinates.map(normalizeCoordinate).filter(Boolean);
-}
-
-function normalizeElevations(elevations, coordinateCount) {
-    if (!Array.isArray(elevations)) return null;
-    const normalized = Array.from({ length: coordinateCount }, (_, index) => {
-        const elevation = Number(elevations[index]);
-        return Number.isFinite(elevation) ? elevation : null;
-    });
-    return normalized.some(elevation => elevation !== null) ? normalized : null;
-}
 
 function fallbackCoordinateLabel(coordinate) {
     return `${coordinate[0].toFixed(4)}, ${coordinate[1].toFixed(4)}`;
 }
 
-function calculateRouteDistance(coordinates) {
-    let distance = 0;
-    for (let index = 1; index < coordinates.length; index++) {
-        distance += haversineDistance(coordinates[index - 1], coordinates[index]);
-    }
-    return distance;
-}
 
 function normalizeStoredRoute(data) {
     if (!data || typeof data !== 'object') return null;
-
-    const coordinates = normalizeCoordinates(data.coordinates);
-    if (coordinates.length < 2) return null;
-
+    const track = normalizeTrack(data);
+    if (track.coordinates.length < 2) return null;
     const fallbackIndex = routes.length;
-    const id = Number(data.id);
-    const distance = Number(data.distance);
+    const id = numericValue(data.id);
+    const distance = numericValue(data.distance);
     const name = typeof data.name === 'string' && data.name.trim() ? data.name.trim() : 'Saved route';
-    const origin = typeof data.origin === 'string' && data.origin.trim() ? data.origin.trim() : fallbackCoordinateLabel(coordinates[0]);
-    const destination = typeof data.destination === 'string' && data.destination.trim()
-        ? data.destination.trim()
-        : fallbackCoordinateLabel(coordinates[coordinates.length - 1]);
-    const travelMode = typeof data.travelMode === 'string' && data.travelMode.trim() ? data.travelMode.trim() : 'DRIVE';
-    const elevations = normalizeElevations(data.elevations, coordinates.length);
-
+    const origin = typeof data.origin === 'string' && data.origin.trim() ? data.origin.trim() : fallbackCoordinateLabel(track.coordinates[0]);
+    const destination = typeof data.destination === 'string' && data.destination.trim() ? data.destination.trim() : fallbackCoordinateLabel(track.coordinates.at(-1));
+    const travelMode = ['DRIVE', 'WALK', 'BICYCLE', 'TRANSIT', 'IMPORTED'].includes(data.travelMode) ? data.travelMode : 'DRIVE';
+    const count = track.elevations.filter(value => value !== null).length;
     return {
-        id: Number.isFinite(id) ? id : Date.now() + fallbackIndex,
-        name,
-        origin,
-        destination,
-        stops: normalizeStops(data.stops),
-        travelMode,
+        ...track,
+        elevations: data.elevations == null ? null : track.elevations,
+        times: data.times == null ? null : track.times,
+        id: Number.isSafeInteger(id) && !routes.some(route => route.id === id) ? id : nextRouteId(),
+        name, origin, destination,
+        stops: normalizeStops(data.stops), travelMode,
         color: normalizeRouteColor(data.color, fallbackIndex),
-        coordinates,
-        elevations,
-        distance: Number.isFinite(distance) && distance >= 0 ? distance : Math.round(calculateRouteDistance(coordinates)),
+        distance: distance !== null && distance >= 0 && data.coordinates.length === track.coordinates.length && track.segmentStarts.length === 1 ? distance : Math.round(trackDistance(track)),
         duration: typeof data.duration === 'string' ? data.duration : null,
         visible: data.visible !== false,
-        elevationStatus: elevations ? 'ready' : null,
+        source: ['google', 'import'].includes(data.source) ? data.source : 'legacy',
+        createdAt: typeof data.createdAt === 'string' ? data.createdAt : null,
+        request: normalizeRouteRequest(data.request),
+        renamed: data.renamed === true,
+        elevationSource: data.elevationSource?.dataset === 'srtm90m' ? { dataset: 'srtm90m', sampled: data.elevationSource.sampled === true, sampleCount: Number(data.elevationSource.sampleCount) || 0, mixed: data.elevationSource.mixed === true } : null,
+        elevationStatus: count === track.coordinates.length ? 'ready' : count ? 'partial' : null,
     };
 }
 
+function nextRouteId() {
+    lastRouteId = Math.max(Date.now(), lastRouteId + 1);
+    while (routes.some(route => route.id === lastRouteId)) lastRouteId++;
+    return lastRouteId;
+}
+
+function normalizeRouteRequest(value) {
+    if (!value || typeof value.origin !== 'string' || typeof value.destination !== 'string') return null;
+    return { origin: value.origin, destination: value.destination, departureTime: typeof value.departureTime === 'string' && Number.isFinite(Date.parse(value.departureTime)) ? value.departureTime : null, stops: normalizeStops(value.stops).slice(0, MAX_WAYPOINTS), travelMode: ['DRIVE', 'WALK', 'BICYCLE', 'TRANSIT'].includes(value.travelMode) ? value.travelMode : 'DRIVE' };
+}
+
 function restoreRoute(data) {
-    const restoredData = normalizeStoredRoute(data);
+    let restoredData;
+    try { restoredData = normalizeStoredRoute(data); } catch (error) { console.warn('Skipping saved route:', error.message); return false; }
     if (!restoredData) {
         console.warn('Skipping saved route with invalid coordinates');
         return false;
     }
 
-    const polylineLayer = L.polyline(restoredData.coordinates, {
-        color: restoredData.color,
-        weight: ROUTE_LINE_WEIGHT,
-        opacity: ROUTE_LINE_OPACITY
-    }).addTo(map);
-
-    const markers = createRouteMarkers(restoredData.coordinates, restoredData.color);
-
-    const route = {
-        ...restoredData,
-        polylineLayer,
-        markers
-    };
-    routes.push(route);
-
-    if (!route.visible) {
-        map.removeLayer(polylineLayer);
-        markers.forEach(marker => map.removeLayer(marker));
-    }
-
-    // Bind popup after route is in array
-    bindRoutePopup(polylineLayer, route);
-    bindRouteHoverEffects(route);
-    updateRouteMapStyles();
-
-    renderRoutesList();
+    routes.push(restoredData);
+    routeMap.add(restoredData);
+    if (!routeListBatch) { updateRouteMapStyles(); renderRoutesList(); }
     return true;
 }
 
 // ============ Custom Markers ============
-function isNewestRoute(route) {
-    return routes[routes.length - 1] === route;
-}
-
-function getRouteLineStyle(route) {
-    return {
-        weight: ROUTE_LINE_WEIGHT,
-        opacity: isNewestRoute(route) ? ROUTE_LINE_OPACITY : OLDER_ROUTE_LINE_OPACITY
-    };
-}
-
 function createEndpointDotIcon(color) {
     const dotSize = OLDER_ROUTE_ENDPOINT_DOT_SIZE;
     return L.divIcon({
@@ -546,16 +480,8 @@ function createEndpointMarkerIcon(type, color, isNewest) {
     return isNewest ? createMarkerIcon(type, color) : createEndpointDotIcon(color);
 }
 
-function applyRouteMapStyle(route) {
-    route.polylineLayer.setStyle(getRouteLineStyle(route));
-    route.markers.forEach((marker, index) => {
-        if (typeof marker.setIcon !== 'function') return;
-        marker.setIcon(createEndpointMarkerIcon(index === 0 ? 'start' : 'end', route.color, isNewestRoute(route)));
-    });
-}
-
 function updateRouteMapStyles() {
-    routes.forEach(applyRouteMapStyle);
+    routeMap.updateStyles(routes.at(-1)?.id);
 }
 
 function createMarkerIcon(type, color, number = null) {
@@ -575,24 +501,6 @@ function createMarkerIcon(type, color, number = null) {
         iconSize: [32, 32],
         iconAnchor: type === 'waypoint' ? [12, 12] : [16, 32]
     });
-}
-
-function createRouteMarkers(coordinates, color) {
-    const markers = [];
-
-    // Start marker
-    const startMarker = L.marker(coordinates[0], {
-        icon: createMarkerIcon('start', color)
-    }).addTo(map);
-    markers.push(startMarker);
-
-    // End marker
-    const endMarker = L.marker(coordinates[coordinates.length - 1], {
-        icon: createMarkerIcon('end', color)
-    }).addTo(map);
-    markers.push(endMarker);
-
-    return markers;
 }
 
 function parseLatLngInput(input) {
@@ -622,14 +530,18 @@ function validateLocationInput(input, label) {
     return false;
 }
 
-function updatePreviewMarkers() {
-    // Clear existing preview markers
+function clearPreviewMarkers() {
     previewMarkers.forEach(m => map.removeLayer(m));
     previewMarkers = [];
+}
+
+function updatePreviewMarkers() {
+    clearPreviewMarkers();
 
     const origin = document.getElementById('origin').value.trim();
     const destination = document.getElementById('destination').value.trim();
     const stops = getStops();
+    if (JSON.stringify([origin, destination, ...stops]) === completedPlannerPoints && routes.some(route => route.id === completedPlannerRouteId && route.visible)) return;
     const previewColor = document.getElementById('routeColor').value || '#888';
 
     if (origin) {
@@ -722,6 +634,7 @@ function updateClickModeUi() {
 }
 
 function enterClickMode(target, flow = 'single') {
+    setMobileView('map');
     clickMode = target;
     clickModeFlow = flow;
     updateClickModeUi();
@@ -876,7 +789,7 @@ function getFocusableElements(container) {
 function setAppInert(isInert) {
     const app = document.getElementById('app');
     if (!app) return;
-    app.inert = isInert;
+    document.querySelectorAll('#app, .mobile-view-toggle, .skip-link').forEach(element => { element.inert = isInert; });
     if (isInert) {
         app.setAttribute('aria-hidden', 'true');
     } else {
@@ -887,6 +800,8 @@ function setAppInert(isInert) {
 function openModal(modal, initialFocusElement) {
     activeModal = modal;
     activeModalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const row = activeModalReturnFocus?.closest('.route-item');
+    activeModalReturnRoute = row ? { id: row.dataset.routeId, action: activeModalReturnFocus.dataset.action } : null;
     setAppInert(true);
     modal.classList.add('visible');
     (initialFocusElement || getFocusableElements(modal)[0] || modal).focus();
@@ -900,7 +815,12 @@ function closeModal(modal) {
         if (activeModalReturnFocus && typeof activeModalReturnFocus.focus === 'function' && document.contains(activeModalReturnFocus)) {
             activeModalReturnFocus.focus();
         }
+        if (activeModalReturnRoute && !document.contains(activeModalReturnFocus)) {
+            const row = document.querySelector(`#routesList [data-route-id="${activeModalReturnRoute.id}"]`);
+            (row?.querySelector(`[data-action="${activeModalReturnRoute.action}"]`) || row || document.getElementById('getRouteBtn'))?.focus();
+        }
         activeModalReturnFocus = null;
+        activeModalReturnRoute = null;
     }
 }
 
@@ -911,6 +831,7 @@ function handleModalKeydown(event) {
         event.preventDefault();
         if (activeModal.id === 'apiKeyModal') closeApiKeyModal();
         else if (activeModal.id === 'filenameModal') closeFilenameModal();
+        else if (activeModal.id === 'renameModal') closeRenameModal();
         return;
     }
 
@@ -938,16 +859,16 @@ document.addEventListener('keydown', handleModalKeydown, true);
 
 // ============ API Key Modal ============
 function getApiKey() {
-    return getStorageItem(sessionStorage, API_KEY_MEMORY_KEY) || getStorageItem(localStorage, API_KEY_STORAGE_KEY);
+    return getStorageItem('sessionStorage', API_KEY_MEMORY_KEY) || getStorageItem('localStorage', API_KEY_STORAGE_KEY);
 }
 
 function isApiKeyRemembered() {
-    return Boolean(getStorageItem(localStorage, API_KEY_STORAGE_KEY));
+    return Boolean(getStorageItem('localStorage', API_KEY_STORAGE_KEY));
 }
 
 function getStorageItem(storage, key) {
     try {
-        return storage.getItem(key) || '';
+        return globalThis[storage].getItem(key) || '';
     } catch {
         return '';
     }
@@ -955,7 +876,7 @@ function getStorageItem(storage, key) {
 
 function removeStorageItem(storage, key) {
     try {
-        storage.removeItem(key);
+        globalThis[storage].removeItem(key);
     } catch {
         // Best effort cleanup only.
     }
@@ -978,19 +899,18 @@ function updateApiKeyStatus() {
     }
 }
 
-function checkApiKeyOnLoad() {
-    if (!getApiKey()) {
-        openApiKeyModal();
-    }
-}
 
 function openApiKeyModal() {
+    const error = document.getElementById('apiKeyError');
+    if (error) error.hidden = true;
     const modal = document.getElementById('apiKeyModal');
     const input = document.getElementById('apiKeyInput');
     const rememberInput = document.getElementById('rememberApiKey');
     input.value = getApiKey();
     if (rememberInput) rememberInput.checked = isApiKeyRemembered();
     updateApiKeyStorageHint();
+    const remove = document.getElementById('removeApiKeyBtn');
+    if (remove) remove.disabled = !getApiKey();
     openModal(modal, input);
 }
 
@@ -1017,11 +937,11 @@ function saveApiKey() {
         try {
             if (rememberInput && rememberInput.checked) {
                 localStorage.setItem(API_KEY_STORAGE_KEY, key);
-                removeStorageItem(sessionStorage, API_KEY_MEMORY_KEY);
+                removeStorageItem('sessionStorage', API_KEY_MEMORY_KEY);
                 showStatus('API key saved on this browser');
             } else {
                 sessionStorage.setItem(API_KEY_MEMORY_KEY, key);
-                removeStorageItem(localStorage, API_KEY_STORAGE_KEY);
+                removeStorageItem('localStorage', API_KEY_STORAGE_KEY);
                 showStatus('API key saved for this tab');
             }
         } catch (error) {
@@ -1035,7 +955,7 @@ function saveApiKey() {
             console.warn('Persistent API key storage unavailable; falling back to session storage:', error.message);
             try {
                 sessionStorage.setItem(API_KEY_MEMORY_KEY, key);
-                removeStorageItem(localStorage, API_KEY_STORAGE_KEY);
+                removeStorageItem('localStorage', API_KEY_STORAGE_KEY);
                 if (rememberInput) rememberInput.checked = false;
                 updateApiKeyStorageHint();
                 showStatus('API key saved for this tab because browser storage is unavailable');
@@ -1054,12 +974,6 @@ function saveApiKey() {
     }
 }
 
-function clearApiKey() {
-    removeStorageItem(localStorage, API_KEY_STORAGE_KEY);
-    removeStorageItem(sessionStorage, API_KEY_MEMORY_KEY);
-    updateApiKeyStatus();
-    openApiKeyModal();
-}
 
 // Close modal on Escape or click outside
 document.getElementById('apiKeyModal').addEventListener('click', function (e) {
@@ -1195,6 +1109,7 @@ function decodePolyline(encoded) {
 
 // ============ Waypoint Management ============
 function addStop(value = '') {
+    if (document.querySelectorAll('.stop-row').length >= MAX_WAYPOINTS) { showStatus(`You can add up to ${MAX_WAYPOINTS} waypoints.`, true); return; }
     const container = document.getElementById('stopsContainer');
     const stopNumber = container.children.length + 1;
 
@@ -1271,6 +1186,8 @@ function renumberStops() {
         if (moveUpButton) moveUpButton.disabled = idx === 0;
         if (moveDownButton) moveDownButton.disabled = idx === rows.length - 1;
     });
+    updateWaypointHint();
+    scheduleDraftSave();
 }
 
 function getStops() {
@@ -1333,6 +1250,7 @@ function reverseRoute() {
 
 // ============ Distance Unit ============
 function setUnit(unit, save = true) {
+    if (!['km', 'mi'].includes(unit)) return;
     distanceUnit = unit;
     document.getElementById('unitKm').classList.toggle('active', unit === 'km');
     document.getElementById('unitMi').classList.toggle('active', unit === 'mi');
@@ -1340,18 +1258,24 @@ function setUnit(unit, save = true) {
     document.getElementById('unitMi').setAttribute('aria-checked', unit === 'mi');
 
     renderRoutesList();
-    if (save) saveToStorage();
+    document.getElementById('unitKm').tabIndex = unit === 'km' ? 0 : -1;
+    document.getElementById('unitMi').tabIndex = unit === 'mi' ? 0 : -1;
+    if (save) { try { localStorage.setItem(UNIT_STORAGE_KEY, unit); } catch { showStatus('Distance preference could not be saved.', true); } }
 }
 
 // ============ Status Messages ============
 function showStatus(message, isError = false) {
     const status = document.getElementById('status');
     clearTimeout(statusTimer);
+    if (activeModal?.id === 'apiKeyModal' && isError) {
+        const error = document.getElementById('apiKeyError');
+        if (error) { error.textContent = message; error.hidden = false; }
+    }
     status.textContent = message;
     status.className = 'status ' + (isError ? 'error' : 'success');
     status.hidden = false;
 
-    statusTimer = setTimeout(() => { status.hidden = true; }, isError ? 9000 : 4000);
+    if (!isError) statusTimer = setTimeout(() => { status.hidden = true; }, 5000);
 }
 
 // ============ Location Parsing ============
@@ -1411,9 +1335,7 @@ async function reverseGeocodeCoordinate(input, apiKey) {
     url.searchParams.set('key', apiKey);
 
     try {
-        const response = await fetchWithTimeout(url.toString(), {}, REVERSE_GEOCODE_REQUEST_TIMEOUT_MS);
-        if (!response.ok) return '';
-        const data = await response.json();
+        const data = await requestJson(url.toString(), { timeoutMs: REVERSE_GEOCODE_REQUEST_TIMEOUT_MS });
         if (data.status && data.status !== 'OK') return '';
         return getReverseGeocodeDisplayName(data);
     } catch (error) {
@@ -1460,6 +1382,47 @@ function selectTravelMode(mode, emitChange = true) {
         button.setAttribute('aria-checked', String(isSelected));
         button.tabIndex = isSelected ? 0 : -1;
     });
+    updateWaypointHint();
+    scheduleDraftSave();
+}
+
+function updateWaypointHint() {
+    const mode = document.getElementById('travelMode')?.value;
+    const count = getStops().length;
+    const hint = document.getElementById('waypointHint');
+    if (hint) hint.textContent = mode === 'TRANSIT' && count ? 'Transit does not support waypoints. Remove them or switch mode.' : `${count}/${MAX_WAYPOINTS} waypoints${count > 10 ? ' · Higher Google billing tier above 10 stops' : ''}`;
+    const add = document.getElementById('addStopBtn');
+    if (add) add.disabled = document.querySelectorAll('.stop-row').length >= MAX_WAYPOINTS;
+    const departure = document.getElementById('departureTimeGroup');
+    if (departure) departure.hidden = mode !== 'TRANSIT';
+}
+
+function scheduleDraftSave() {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(saveDraft, 250);
+}
+
+function saveDraft() {
+    const draft = { origin: document.getElementById('origin').value, destination: document.getElementById('destination').value, stops: getStops(), travelMode: document.getElementById('travelMode').value, departureTime: document.getElementById('departureTime')?.value || '', labelCoordinates: document.getElementById('labelCoordinates')?.checked || false, fetchElevation: document.getElementById('fetchElevation')?.checked !== false };
+    try { localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft)); } catch { /* Completed routes have a separate persistent warning. */ }
+}
+
+function loadDraft() {
+    try {
+        const draft = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY));
+        const request = normalizeRouteRequest(draft);
+        if (!request) return;
+        document.getElementById('origin').value = request.origin;
+        document.getElementById('destination').value = request.destination;
+        replaceStops(request.stops); selectTravelMode(request.travelMode, false);
+        const departure = document.getElementById('departureTime');
+        if (departure && typeof draft.departureTime === 'string') departure.value = draft.departureTime;
+        const labels = document.getElementById('labelCoordinates');
+        if (labels) labels.checked = draft.labelCoordinates === true;
+        const elevation = document.getElementById('fetchElevation');
+        if (elevation) elevation.checked = draft.fetchElevation !== false;
+        updateEndpointValidation(); updatePreviewMarkers();
+    } catch { /* A malformed draft must not block the application. */ }
 }
 
 function moveTravelModeSelection(currentButton, direction) {
@@ -1513,23 +1476,10 @@ function setupTravelModeToggle() {
     selectTravelMode(input.value || buttons[0].dataset.travelMode, false);
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = ROUTE_REQUEST_TIMEOUT_MS) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-        return await fetch(url, { ...options, signal: controller.signal });
-    } catch (error) {
-        if (error.name === 'AbortError') {
-            throw new Error('Network request timed out. Please try again.');
-        }
-        throw error;
-    } finally {
-        clearTimeout(timeoutId);
-    }
-}
 
 // ============ Get Route from API ============
 async function getRoute() {
+    if (routeRequestController) return;
     const apiKey = getApiKey();
     const origin = document.getElementById('origin').value.trim();
     const destination = document.getElementById('destination').value.trim();
@@ -1570,131 +1520,105 @@ async function getRoute() {
     }
     const invalidStopIndex = stops.findIndex(stop => !validateLocationInput(stop, 'Waypoint'));
     if (invalidStopIndex !== -1) {
-        document.querySelectorAll('.stop-input')[invalidStopIndex]?.focus();
+        [...document.querySelectorAll('.stop-input')].filter(input => input.value.trim())[invalidStopIndex]?.focus();
         return;
     }
 
+    const request = { origin, destination, travelMode, stops: [...stops] };
+    try { validateRouteRequest(request); }
+    catch (error) { showStatus(error.message, true); return; }
+    const departure = document.getElementById('departureTime')?.value;
+    if (travelMode === 'TRANSIT' && departure) {
+        const date = new Date(departure);
+        const offset = date.getTime() - Date.now();
+        if (!Number.isFinite(offset) || offset < -7 * 86400000 || offset > 100 * 86400000) {
+            showStatus('Choose a transit departure within the past 7 days or the next 100 days.', true);
+            return;
+        }
+        request.departureTime = date.toISOString();
+    }
+    const controller = new AbortController();
+    routeRequestController = controller;
     const btn = document.getElementById('getRouteBtn');
     btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
     btn.innerHTML = '<span class="spinner"></span>Finding route...';
+    const cancel = document.getElementById('cancelRouteBtn');
+    if (cancel) cancel.hidden = false;
+    saveDraft();
 
     try {
-        const payload = {
-            origin: parseLocation(origin),
-            destination: parseLocation(destination),
-            travelMode: travelMode,
-            polylineQuality: 'HIGH_QUALITY'
-        };
-
-        if (stops.length > 0) {
-            payload.intermediates = stops.map(stop => parseLocation(stop));
-        }
-
-        const response = await fetchWithTimeout('https://routes.googleapis.com/directions/v2:computeRoutes', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Goog-Api-Key': apiKey,
-                'X-Goog-FieldMask': 'routes.polyline,routes.distanceMeters,routes.duration'
-            },
-            body: JSON.stringify(payload)
-        }, ROUTE_REQUEST_TIMEOUT_MS);
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            const errorMsg = data.error?.message || 'API request failed';
-            if (errorMsg.includes('API key') || response.status === 403 || response.status === 401) {
-                clearApiKey();
-                throw new Error('Invalid API key. Please check your Google Routes API key.');
-            } else if (response.status === 429) {
-                throw new Error('Rate limited. Please wait a moment and try again.');
-            }
-            throw new Error(errorMsg);
-        }
-
-        if (!data.routes || data.routes.length === 0) {
-            throw new Error('No route found between these locations. Try different addresses or travel mode.');
-        }
-
-        const encodedPolyline = data.routes[0].polyline.encodedPolyline;
-        const coordinates = decodePolyline(encodedPolyline);
-        if (coordinates.length < 2) {
-            throw new Error('Route geometry was missing or invalid. Please try again.');
-        }
-        const distance = data.routes[0].distanceMeters;
-        const duration = data.routes[0].duration;
-
-        // Generate route name (always auto-generated from origin → destination)
-        const routeId = Date.now();
-        const routeLabels = await resolveRouteEndpointLabels(origin, destination, apiKey);
-        const routeName = buildRouteName(routeLabels.originLabel, routeLabels.destinationLabel);
-
-        // Create polyline
-        const polylineLayer = L.polyline(coordinates, {
-            color: color,
-            weight: ROUTE_LINE_WEIGHT,
-            opacity: ROUTE_LINE_OPACITY
-        }).addTo(map);
-
-        // Create markers
-        const markers = createRouteMarkers(coordinates, color);
-
-        // Fit map
-        map.fitBounds(polylineLayer.getBounds(), { padding: [50, 50] });
+        const result = await computeRoute(request, { apiKey, signal: controller.signal, parseLocation });
+        if (controller.signal.aborted) return;
+        const coordinates = decodePolyline(result.polyline?.encodedPolyline);
+        if (coordinates.length < 2) throw new Error('Route geometry was missing or invalid. Please try again.');
+        const distance = numericValue(result.distanceMeters) ?? Math.round(trackDistance({ coordinates }));
+        const duration = typeof result.duration === 'string' ? result.duration : null;
+        const routeId = nextRouteId();
+        const routeName = buildRouteName(origin, destination);
 
         // Store route
         const route = {
             id: routeId,
             name: routeName,
-            origin: routeLabels.originLabel,
-            destination: routeLabels.destinationLabel,
+            origin, destination, request,
+            source: 'google',
+            createdAt: new Date().toISOString(),
+            segmentStarts: [0],
+            times: null,
             stops: [...stops],
             travelMode,
             color,
             coordinates,
-            polylineLayer,
-            markers,
             distance,
             duration,
             visible: true,
-            elevationStatus: 'loading'
+            elevationStatus: null
         };
         routes.push(route);
+        routeMap.add(route);
         updateRouteMapStyles();
-
-        // Bind popup for click/right-click
-        bindRoutePopup(polylineLayer, route);
-        bindRouteHoverEffects(route);
-
-        // Clear preview markers
-        previewMarkers.forEach(m => map.removeLayer(m));
-        previewMarkers = [];
+        setMobileView('map');
+        routeMap.fit(route.id);
 
         // Update UI
         renderRoutesList();
         updateBulkButtons();
-        saveToStorage();
+        if (!saveToStorage()) setMobileView('planner');
         showStatus(`Route added: ${formatDistance(distance)}, ${formatDuration(duration)}. Edit, add, or reorder points to create another route.`);
         exitClickMode();
 
         // Pick a random color for the next route
+        completedPlannerPoints = JSON.stringify([origin, destination, ...stops]);
+        completedPlannerRouteId = route.id;
         selectRandomColor();
+        clearPreviewMarkers();
 
-        // Fetch elevation data in the background
-        enrichRouteElevations(route).then(() => {
-            if (route.elevations && route.elevations.some(e => e !== null)) {
-                showStatus(`Elevation data added for: ${route.name}`);
-            }
-            renderRoutesList();
-        });
-
+        // Optional labels never delay drawing or exporting the route.
+        if (document.getElementById('labelCoordinates')?.checked) {
+            resolveRouteEndpointLabels(origin, destination, apiKey).then(labels => {
+                if (!routes.includes(route)) return;
+                route.origin = labels.originLabel;
+                route.destination = labels.destinationLabel;
+                if (!route.renamed) route.name = buildRouteName(route.origin, route.destination);
+                routeMap.updateLabels(route.id);
+                renderRoutesList(); saveToStorage();
+            });
+        }
+        enrichRouteElevations(route);
     } catch (error) {
-        showStatus(error.message, true);
+        showStatus(error.name === 'AbortError' ? 'Route calculation cancelled.' : error.message, error.name !== 'AbortError');
     } finally {
+        if (routeRequestController === controller) routeRequestController = null;
         btn.disabled = false;
+        btn.removeAttribute('aria-busy');
         btn.innerHTML = 'Get Route';
+        if (cancel) cancel.hidden = true;
     }
+}
+
+function cancelRouteRequest() {
+    routeRequestController?.abort();
 }
 
 // ============ Formatting Helpers ============
@@ -1725,31 +1649,24 @@ function formatDuration(durationStr) {
     return `${minutes}m`;
 }
 
-function escapeXml(text) {
-    return String(text ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
-}
-
-function sanitizeFilename(s) {
-    return s.replace(/[^a-zA-Z0-9_\-\s]/g, '_').substring(0, 50);
-}
 
 // ============ Route List Rendering ============
 function renderRoutesList() {
     const list = document.getElementById('routesList');
+    const focused = document.activeElement;
+    const focusedRow = focused?.closest?.('.route-item');
+    const focusState = focusedRow && list.contains(focused) ? { id: focusedRow.dataset.routeId, action: focused.dataset.action, index: [...list.children].indexOf(focusedRow) } : null;
 
     if (routes.length === 0) {
         list.innerHTML = `
             <div class="routes-empty-state">
                 <div class="routes-empty-state-icon">${iconSvg('map', 'empty-state-icon')}</div>
                 <div class="routes-empty-state-title">No routes yet</div>
-                <div class="routes-empty-state-copy">Enter an origin and destination, then press Enter</div>
+                <div class="routes-empty-state-copy">Enter an origin and destination, or open a GPS file.</div>
+                <button type="button" class="btn-outline" data-action="browse-import">Import GPS file</button>
             </div>
         `;
+        if (focusState) list.querySelector('button')?.focus();
         return;
     }
 
@@ -1773,6 +1690,9 @@ function renderRoutesList() {
                 </div>
             </div>
             <div class="route-item-actions">
+                ${route.request ? `<button type="button" class="btn-outline btn-small" data-action="edit-route" data-route-id="${route.id}">Edit / reuse</button>` : ''}
+                <button type="button" class="btn-outline btn-small" data-action="rename-route" data-route-id="${route.id}" aria-label="Rename ${escapeHtml(route.name)}">Rename</button>
+                ${route.elevationStatus !== 'ready' ? `<button type="button" class="btn-outline btn-small" data-action="${route.elevationController ? 'cancel-elevation' : 'retry-elevation'}" data-route-id="${route.id}">${route.elevationController ? 'Pause elevation' : route.elevations?.some(value => value !== null) ? 'Retry elevation' : 'Add elevation'}</button>` : ''}
                 <button class="btn-outline btn-small" data-action="toggle-visibility" data-route-id="${route.id}"
                         aria-label="${route.visible ? 'Hide' : 'Show'} route"
                         title="${route.visible ? 'Hide this route from the map' : 'Show this route on the map'}">
@@ -1791,11 +1711,17 @@ function renderRoutesList() {
             </div>
         </div>
     `).join('');
+    if (focusState) {
+        const row = [...list.children].find(item => item.dataset.routeId === focusState.id) || list.children[Math.min(focusState.index, list.children.length - 1)];
+        (row?.querySelector(`[data-action="${focusState.action}"]`) || row)?.focus({ preventScroll: true });
+    }
 }
 
 function getElevationStatusText(route) {
-    if (route.elevationStatus === 'loading') return 'adding elevation';
-    if (route.elevationStatus === 'ready') return 'elevation ready';
+    if (route.elevationStatus === 'loading') return route.elevationProgress ? `elevation ${route.elevationProgress.completed}/${route.elevationProgress.total}` : 'adding elevation';
+    if (route.elevationStatus === 'partial') return 'partial elevation';
+    if (route.elevationStatus === 'cancelled') return 'elevation paused';
+    if (route.elevationStatus === 'ready') return route.elevationSource?.sampled ? 'sampled elevation' : 'elevation ready';
     if (route.elevationStatus === 'unavailable') return 'no elevation';
     return '';
 }
@@ -1808,64 +1734,42 @@ function updateBulkButtons() {
 }
 
 function zoomToRoute(id) {
-    const route = routes.find(r => r.id === id);
-    if (route) {
-        // Ensure route is visible
-        if (!route.visible) {
-            route.visible = true;
-            route.polylineLayer.addTo(map);
-            route.markers.forEach(m => m.addTo(map));
-            renderRoutesList();
-            saveToStorage();
-        }
-
-        map.fitBounds(route.polylineLayer.getBounds(), { padding: [50, 50] });
-
-        // Open popup at the center of the route
-        const center = route.polylineLayer.getCenter();
-        route.polylineLayer.openPopup(center);
-    }
-}
-
-function highlightRouteById(id) {
-    const route = routes.find(r => r.id === id);
-    if (route && route.highlight) {
-        route.highlight();
-    }
-}
-
-function unhighlightRouteById(id) {
-    const route = routes.find(r => r.id === id);
-    if (route && route.unhighlight) {
-        route.unhighlight();
-    }
-}
-
-function toggleRouteVisibility(id) {
-    const route = routes.find(r => r.id === id);
-    if (route) {
-        route.visible = !route.visible;
-        if (route.visible) {
-            route.polylineLayer.addTo(map);
-            route.markers.forEach(m => m.addTo(map));
-        } else {
-            route.polylineLayer.closeTooltip();
-            route.markers.forEach(m => m.closeTooltip());
-            map.removeLayer(route.polylineLayer);
-            route.markers.forEach(m => map.removeLayer(m));
-        }
+    const route = routes.find(item => item.id === id);
+    if (!route) return;
+    if (!route.visible) {
+        route.visible = true;
+        routeMap.setVisible(id, true);
         renderRoutesList();
         saveToStorage();
     }
+    setMobileView('map');
+    routeMap.fit(id);
+    routeMap.open(id);
+}
+
+function highlightRouteById(id) {
+    routeMap.highlight(id, true);
+}
+
+function unhighlightRouteById(id) {
+    routeMap.highlight(id, false);
+}
+
+function toggleRouteVisibility(id) {
+    const route = routes.find(item => item.id === id);
+    if (!route) return;
+    route.visible = !route.visible;
+    routeMap.setVisible(id, route.visible);
+    renderRoutesList();
+    saveToStorage();
 }
 
 function removeRoute(id) {
     const index = routes.findIndex(r => r.id === id);
     if (index !== -1) {
-        routes[index].polylineLayer.closeTooltip();
-        routes[index].markers.forEach(m => m.closeTooltip());
-        map.removeLayer(routes[index].polylineLayer);
-        routes[index].markers.forEach(m => map.removeLayer(m));
+        rememberDeleted([{ data: routeSnapshot(routes[index]), index }]);
+        routes[index].elevationController?.abort();
+        routeMap.remove(id);
         routes.splice(index, 1);
         updateRouteMapStyles();
         renderRoutesList();
@@ -1875,12 +1779,11 @@ function removeRoute(id) {
 }
 
 function clearAllRoutes() {
-    if (!confirm('Remove all routes? This cannot be undone.')) return;
+    if (!confirm('Remove all routes? You can undo this for 15 seconds.')) return;
+    rememberDeleted(routes.map((route, index) => ({ data: routeSnapshot(route), index })));
     routes.forEach(route => {
-        route.polylineLayer.closeTooltip();
-        route.markers.forEach(m => m.closeTooltip());
-        map.removeLayer(route.polylineLayer);
-        route.markers.forEach(m => map.removeLayer(m));
+        route.elevationController?.abort();
+        routeMap.remove(route.id);
     });
     routes = [];
     renderRoutesList();
@@ -1888,86 +1791,98 @@ function clearAllRoutes() {
     saveToStorage();
 }
 
-// ============ GPX Generation ============
-function generateGPX(route) {
-    const now = new Date();
-    const coords = route.coordinates;
-    const stops = normalizeStops(route.stops);
-
-    // Calculate bounds
-    let minlat = Infinity, maxlat = -Infinity, minlon = Infinity, maxlon = -Infinity;
-    for (const [lat, lng] of coords) {
-        if (lat < minlat) minlat = lat;
-        if (lat > maxlat) maxlat = lat;
-        if (lng < minlon) minlon = lng;
-        if (lng > maxlon) maxlon = lng;
+function rememberDeleted(items) {
+    deletedRoutes = items;
+    clearTimeout(undoTimer);
+    const notice = document.getElementById('undoNotice');
+    if (notice) {
+        notice.hidden = !items.length;
+        document.getElementById('undoMessage').textContent = `${items.length} route(s) removed.`;
     }
-    const bounds = {
-        minlat: minlat.toFixed(6),
-        maxlat: maxlat.toFixed(6),
-        minlon: minlon.toFixed(6),
-        maxlon: maxlon.toFixed(6)
-    };
-
-    const lines = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<gpx version="1.1" creator="route2gpx-web" xmlns="http://www.topografix.com/GPX/1/1">',
-        '  <metadata>',
-        `    <name>${escapeXml(route.name)}</name>`,
-        `    <desc>Route from ${escapeXml(route.origin)} to ${escapeXml(route.destination)} via ${route.travelMode.toLowerCase()}${formatStopDescription(stops)}</desc>`,
-        `    <time>${now.toISOString()}</time>`,
-        `    <bounds minlat="${bounds.minlat}" minlon="${bounds.minlon}" maxlat="${bounds.maxlat}" maxlon="${bounds.maxlon}"/>`,
-        '  </metadata>'
-    ];
-
-    // Add waypoints for origin, stops, and destination
-    appendWaypoint(lines, coords[0], `Start: ${route.origin}`);
-
-    stops.forEach((stop, idx) => {
-        const latLng = parseLatLngInput(stop);
-        if (!latLng || !isValidLatLng(latLng)) return;
-        appendWaypoint(lines, [latLng.latitude, latLng.longitude], `Stop ${idx + 1}: ${stop}`);
-    });
-
-    appendWaypoint(lines, coords[coords.length - 1], `End: ${route.destination}`);
-
-    // Add track
-    lines.push('  <trk>');
-    lines.push(`    <name>${escapeXml(route.name)}</name>`);
-    lines.push(`    <type>${escapeXml(route.travelMode)}</type>`);
-    lines.push('    <trkseg>');
-
-    const durationSeconds = parseInt(route.duration?.replace('s', ''), 10) || coords.length * 60;
-    const intervalMs = (durationSeconds * 1000) / Math.max(coords.length - 1, 1);
-
-    coords.forEach(([lat, lng], idx) => {
-        const time = new Date(now.getTime() + idx * intervalMs).toISOString();
-        const ele = (route.elevations && route.elevations[idx] != null) ? route.elevations[idx] : 0;
-        lines.push(`      <trkpt lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}">`);
-        lines.push(`        <ele>${ele}</ele>`);
-        lines.push(`        <time>${time}</time>`);
-        lines.push('      </trkpt>');
-    });
-
-    lines.push('    </trkseg>');
-    lines.push('  </trk>');
-    lines.push('</gpx>');
-
-    return lines.join('\n');
+    undoTimer = setTimeout(() => { deletedRoutes = []; if (notice) notice.hidden = true; }, 15000);
 }
 
-function formatStopDescription(stops) {
-    return stops.length > 0 ? `. Stops: ${stops.map(escapeXml).join(', ')}` : '';
+function undoDelete() {
+    const items = deletedRoutes;
+    deletedRoutes = [];
+    clearTimeout(undoTimer);
+    routeListBatch = true;
+    for (const { data, index } of items) {
+        if (restoreRoute(data)) {
+            const restored = routes.pop();
+            routes.splice(Math.min(index, routes.length), 0, restored);
+        }
+    }
+    routeListBatch = false;
+    updateRouteMapStyles(); renderRoutesList(); updateBulkButtons(); saveToStorage();
+    const notice = document.getElementById('undoNotice');
+    if (notice) notice.hidden = true;
+    showStatus(`Restored ${items.length} route(s).`);
 }
 
-function appendWaypoint(lines, [lat, lng], name) {
-    lines.push(`  <wpt lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}">`);
-    lines.push(`    <name>${escapeXml(name)}</name>`);
-    lines.push('  </wpt>');
+function loadRouteIntoPlanner(id) {
+    const route = routes.find(item => item.id === id);
+    if (!route?.request) return;
+    document.getElementById('origin').value = route.request.origin;
+    document.getElementById('destination').value = route.request.destination;
+    replaceStops(route.request.stops); selectTravelMode(route.request.travelMode);
+    const departure = document.getElementById('departureTime');
+    if (departure) departure.value = route.request.departureTime ? toLocalDatetime(route.request.departureTime) : '';
+    updateEndpointValidation(); updatePreviewMarkers(); saveDraft();
+    setMobileView('planner');
+    document.getElementById('origin').focus();
+    showStatus('Route loaded into the planner. Calculate to add a new version.');
+}
+
+function toLocalDatetime(value) {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+}
+
+function openRenameModal(id) {
+    const route = routes.find(item => item.id === id);
+    if (!route) return;
+    renameRouteId = id;
+    const input = document.getElementById('renameInput');
+    input.value = route.name;
+    openModal(document.getElementById('renameModal'), input);
+    input.select();
+}
+
+function closeRenameModal() {
+    closeModal(document.getElementById('renameModal'));
+    renameRouteId = null;
+}
+
+function confirmRename() {
+    const route = routes.find(item => item.id === renameRouteId);
+    const name = document.getElementById('renameInput').value.trim();
+    if (!name) { document.getElementById('renameInput').focus(); return; }
+    if (route) { route.name = name.slice(0, 200); route.renamed = true; routeMap.updateLabels(route.id); }
+    closeRenameModal(); renderRoutesList(); saveToStorage();
+}
+
+function setMobileView(view) {
+    document.body.dataset.mobileView = view;
+    document.querySelectorAll('[data-mobile-view]').forEach(button => {
+        if (button.tagName === 'BUTTON') button.setAttribute('aria-pressed', String(button.dataset.mobileView === view));
+    });
+    if (typeof map.invalidateSize === 'function') map.invalidateSize({ pan: false });
+}
+
+// ============ GPX Export ============
+function generateGPX(route, options = {}) {
+    return serializeGPX(route, options);
 }
 
 // ============ Filename Confirmation Modal ============
 let pendingDownload = null; // { routeId, gpxContent, defaultFilename }
+
+function exportDataDescription(route) {
+    const known = route.elevations?.filter(Number.isFinite).length || 0;
+    const recorded = route.times?.filter(Boolean).length || 0;
+    return `${route.coordinates.length.toLocaleString()} points · ${route.segmentStarts?.length || 1} segment(s). Elevation: ${known}/${route.coordinates.length} points${route.elevationController || route.elevationPending ? ' (still loading)' : ''}. Recorded times: ${recorded}/${route.coordinates.length} points. Missing elevations and times are omitted.${route.elevationSource?.sampled ? ' Elevation between samples is interpolated.' : ''}${route.elevationSource?.mixed ? ' Recorded and SRTM elevations are combined.' : ''}`;
+}
 
 function openFilenameModal(routeId, gpxContent, defaultFilename) {
     pendingDownload = { routeId, gpxContent, defaultFilename };
@@ -1976,6 +1891,11 @@ function openFilenameModal(routeId, gpxContent, defaultFilename) {
     const preview = document.getElementById('filenamePreview');
     input.value = defaultFilename;
     preview.textContent = defaultFilename;
+    const checkbox = document.getElementById('synthesizeTimes');
+    if (checkbox) checkbox.checked = false;
+    const route = routes.find(item => item.id === routeId);
+    const hint = document.getElementById('exportDataHint');
+    if (hint && route) hint.textContent = exportDataDescription(route);
     openModal(modal, input);
     input.select();
 }
@@ -1991,7 +1911,9 @@ function confirmFilenameDownload() {
     if (!filename) filename = pendingDownload.defaultFilename;
     if (!filename.toLowerCase().endsWith('.gpx')) filename += '.gpx';
     filename = sanitizeFilename(filename.replace(/\.gpx$/i, '')) + '.gpx';
-    downloadFile(pendingDownload.gpxContent, filename, 'application/gpx+xml');
+    const route = routes.find(item => item.id === pendingDownload.routeId);
+    const content = route ? generateGPX(route, { timePolicy: document.getElementById('synthesizeTimes')?.checked ? 'synthesize' : 'preserve' }) : pendingDownload.gpxContent;
+    downloadFile(content, filename, 'application/gpx+xml');
     closeFilenameModal();
 }
 
@@ -2014,7 +1936,7 @@ function downloadRoute(id) {
     const route = routes.find(r => r.id === id);
     if (!route) return;
 
-    const gpx = generateGPX(route);
+    const gpx = null;
     const filename = `${sanitizeFilename(route.travelMode.toLowerCase())}_${sanitizeFilename(route.name)}.gpx`;
     openFilenameModal(id, gpx, filename);
 }
@@ -2027,15 +1949,26 @@ async function downloadAllRoutes() {
         return;
     }
 
+    const snapshot = routes.map(route => ({ ...routeSnapshot(route), elevationPending: Boolean(route.elevationController) }));
+    const filenames = uniqueGpxFilenames(snapshot);
+    const summary = document.getElementById('batchExportSummary');
+    if (summary) {
+        summary.hidden = false;
+        summary.open = true;
+        document.getElementById('batchExportItems').replaceChildren(...snapshot.map(route => {
+            const item = document.createElement('li');
+            item.textContent = `${route.name}: ${exportDataDescription(route)}`;
+            return item;
+        }));
+    }
     // Batch download as ZIP
     try {
         await ensureJSZip();
         const zip = new JSZip();
-        routes.forEach(route => {
-            const gpx = generateGPX(route);
-            const filename = `${sanitizeFilename(route.travelMode.toLowerCase())}_${sanitizeFilename(route.name)}.gpx`;
-            zip.file(filename, gpx);
-        });
+        for (const [index, route] of snapshot.entries()) {
+            zip.file(filenames[index], generateGPX(route));
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
         const blob = await zip.generateAsync({ type: 'blob' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -2044,15 +1977,15 @@ async function downloadAllRoutes() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showStatus(`Downloaded ${routes.length} routes as ZIP`);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showStatus(`Downloaded ${snapshot.length} routes as ZIP. See ZIP export data for elevation and time coverage.`);
     } catch (error) {
         console.warn('ZIP download unavailable, falling back to sequential GPX downloads:', error.message);
         // Fallback: sequential downloads
-        routes.forEach((route, idx) => {
+        snapshot.forEach((route, idx) => {
             setTimeout(() => {
                 const gpx = generateGPX(route);
-                const filename = `${sanitizeFilename(route.travelMode.toLowerCase())}_${sanitizeFilename(route.name)}.gpx`;
+                const filename = filenames[idx];
                 downloadFile(gpx, filename, 'application/gpx+xml');
             }, idx * 300);
         });
@@ -2069,62 +2002,44 @@ function downloadFile(content, filename, mimeType) {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // ============ Elevation Data (Open-Topo-Data) ============
-async function fetchElevations(coordinates) {
-    // Open-Topo-Data allows up to 100 points per request
-    const BATCH_SIZE = 100;
-    const elevations = new Array(coordinates.length).fill(null);
-
-    for (let i = 0; i < coordinates.length; i += BATCH_SIZE) {
-        const batch = coordinates.slice(i, i + BATCH_SIZE);
-        const locations = batch.map(([lat, lng]) => `${lat.toFixed(6)},${lng.toFixed(6)}`).join('|');
-
-        try {
-            const response = await fetchWithTimeout(
-                `/api/elevation/v1/srtm90m?locations=${encodeURIComponent(locations)}`,
-                {},
-                ELEVATION_REQUEST_TIMEOUT_MS
-            );
-            if (!response.ok) throw new Error(`Elevation API error: ${response.status}`);
-
-            const data = await response.json();
-            if (data.status === 'OK' && Array.isArray(data.results)) {
-                data.results.forEach((result, idx) => {
-                    if (idx >= batch.length) return;
-                    elevations[i + idx] = Number.isFinite(result?.elevation) ? result.elevation : null;
-                });
-            }
-        } catch (e) {
-            console.warn('Elevation fetch failed for batch:', e.message);
-            // Leave as null, GPX will use 0 as fallback
-        }
-
-        // Rate limit: 1 request per second for the free API
-        if (i + BATCH_SIZE < coordinates.length) {
-            await new Promise(resolve => setTimeout(resolve, 1100));
-        }
-    }
-
-    return elevations;
+async function fetchElevations(coordinates, options = {}) {
+    return (await elevationClient.fetch(coordinates, options)).elevations;
 }
 
-async function enrichRouteElevations(route) {
-    if (route.elevations && route.elevations.some(e => e !== null)) return; // Already fetched
-
+async function enrichRouteElevations(route, { force = false } = {}) {
+    if (route.elevationController || route.elevationStatus === 'ready') return;
+    if (!force && document.getElementById('fetchElevation')?.checked === false) return;
+    const controller = new AbortController();
+    route.elevationController = controller;
+    route.elevationStatus = 'loading';
+    renderRoutesList();
     try {
-        route.elevationStatus = 'loading';
-        renderRoutesList();
-        route.elevations = await fetchElevations(route.coordinates);
-        route.elevationStatus = route.elevations.some(elevation => elevation !== null) ? 'ready' : 'unavailable';
+        const result = await elevationClient.fetch(route.coordinates, {
+            signal: controller.signal, segmentStarts: route.segmentStarts, existing: route.elevations || [],
+            interpolateExisting: route.elevationSource?.dataset === 'srtm90m',
+            onProgress(progress) { if (routes.includes(route)) { route.elevationProgress = progress; renderRoutesList(); } },
+        });
+        if (!routes.includes(route)) return;
+        const mixed = route.elevationSource?.mixed === true || (!route.elevationSource && route.elevations?.some(Number.isFinite));
+        route.elevations = result.elevations;
+        route.elevationStatus = result.status;
+        if (result.addedSamples > 0) route.elevationSource = { dataset: 'srtm90m', sampled: result.sampled, sampleCount: result.sampleCount, mixed: Boolean(mixed) };
         saveToStorage();
     } catch (error) {
-        route.elevationStatus = 'unavailable';
-        renderRoutesList();
-        console.warn('Failed to fetch elevations:', error.message);
+        if (routes.includes(route)) route.elevationStatus = controller.signal.aborted ? 'cancelled' : 'unavailable';
+    } finally {
+        delete route.elevationController;
+        delete route.elevationProgress;
+        if (routes.includes(route)) renderRoutesList();
     }
+}
+
+function cancelElevation(id) {
+    routes.find(route => route.id === id)?.elevationController?.abort();
 }
 
 // ============ GPX Import ============
@@ -2193,26 +2108,56 @@ function setupImport() {
 }
 
 async function handleImportFiles(files) {
+    if (importController) { showStatus('An import is already running. Cancel it before starting another.', true); return; }
     const fileArray = Array.from(files);
+    if (fileArray.length > 100 || fileArray.reduce((sum, file) => sum + file.size, 0) > 250 * 1024 * 1024) {
+        showStatus('Import at most 100 files and 250 MB at a time.', true); return;
+    }
+    const controller = new AbortController();
+    importController = controller;
+    setMobileView('planner');
+    const cancel = document.getElementById('cancelImportBtn');
+    if (cancel) cancel.hidden = false;
     let imported = 0;
-
+    let hasWarnings = false;
+    const outcomes = [];
     for (const file of fileArray) {
+        if (controller.signal.aborted) break;
         try {
             showStatus(`Importing ${file.name}...`);
-            await handleSingleImportFile(file);
+            const { added, diagnostics } = await handleSingleImportFile(file, { signal: controller.signal });
             imported++;
-        } catch (e) {
-            showStatus(`Failed to import ${file.name}: ${e.message}`, true);
-        }
+            const warnings = importWarnings(diagnostics);
+            hasWarnings ||= warnings.length > 0;
+            outcomes.push(`${file.name}: imported ${added.length} track(s).${warnings.length ? ` ${warnings.join(' ')}` : ''}`);
+        } catch (error) { outcomes.push(`${file.name}: ${error.message}`); }
+        await new Promise(resolve => setTimeout(resolve, 0));
     }
+    importController = null;
+    if (cancel) cancel.hidden = true;
+    if (controller.signal.aborted) outcomes.push('Import cancelled. Completed tracks are retained.');
+    const summary = document.getElementById('importSummary');
+    if (summary) {
+        summary.hidden = false;
+        summary.open = hasWarnings || imported < fileArray.length;
+        document.getElementById('importSummaryTitle').textContent = `Imported ${imported} of ${fileArray.length} file(s)`;
+        const list = document.getElementById('importSummaryItems');
+        list.replaceChildren(...outcomes.map(message => { const item = document.createElement('li'); item.textContent = message; return item; }));
+    }
+    showStatus(`Imported ${imported} of ${fileArray.length} file(s).${hasWarnings || imported < fileArray.length ? ' See import results for details.' : ''}`, imported < fileArray.length);
+}
 
-    if (fileArray.length > 1 && imported > 0) {
-        showStatus(`Imported ${imported} of ${fileArray.length} file(s)`);
-    }
+function importWarnings(diagnostics) {
+    const warnings = [];
+    if (diagnostics.skippedPoints) warnings.push(`Skipped ${diagnostics.skippedPoints} invalid point(s).`);
+    if (diagnostics.skippedTracks) warnings.push(`Skipped ${diagnostics.skippedTracks} track(s) with fewer than two points.`);
+    if (diagnostics.unsupportedGeometries) warnings.push(`Skipped ${diagnostics.unsupportedGeometries} unsupported geometry item(s).`);
+    return warnings;
 }
 
 function detectImportFormat(filename) {
     const name = filename.toLowerCase();
+    if (/\.(geojson|json)\.gz$/.test(name)) return { format: 'geojson', gzipped: true };
     if (name.endsWith('.fit.gz')) return { format: 'fit', gzipped: true };
     if (name.endsWith('.tcx.gz')) return { format: 'tcx', gzipped: true };
     if (name.endsWith('.gpx.gz')) return { format: 'gpx', gzipped: true };
@@ -2225,7 +2170,7 @@ function detectImportFormat(filename) {
     return null;
 }
 
-async function handleSingleImportFile(file) {
+async function handleSingleImportFile(file, { signal } = {}) {
     assertFileSize(file, MAX_IMPORT_FILE_BYTES, file.name);
     const detected = detectImportFormat(file.name);
     if (!detected) {
@@ -2235,128 +2180,40 @@ async function handleSingleImportFile(file) {
     const { format, gzipped } = detected;
     let arrayBuffer = await file.arrayBuffer();
 
-    // Decompress gzipped files using pako, loaded only when needed.
-    if (gzipped) {
-        await ensurePako();
-        const inflated = pako.inflate(new Uint8Array(arrayBuffer));
-        if (inflated.byteLength > MAX_DECOMPRESSED_IMPORT_BYTES) {
-            throw new Error(`Decompressed file is too large. Maximum size is ${formatSizeLimit(MAX_DECOMPRESSED_IMPORT_BYTES)}.`);
-        }
-        arrayBuffer = inflated.buffer;
-    }
-
-    // Strip extensions to get base name for fallback
-    const baseName = file.name.replace(/\.(fit|tcx|gpx|kml|geojson|json)(\.gz)?$/i, '');
-
-    if (format === 'gpx') {
-        const text = new TextDecoder().decode(arrayBuffer);
-        importGPX(text, baseName + '.gpx');
-        return;
-    }
-    if (format === 'kml') {
-        const text = new TextDecoder().decode(arrayBuffer);
-        importKML(text, baseName + '.kml');
-        return;
-    }
-
     let result;
-    if (format === 'fit') {
-        result = parseFIT(arrayBuffer);
-    } else if (format === 'tcx') {
-        const text = new TextDecoder().decode(arrayBuffer);
-        result = parseTCX(text);
-    } else if (format === 'geojson') {
-        const text = new TextDecoder().decode(arrayBuffer);
-        result = parseGeoJSON(text);
+    if (canUseImportWorker() && (gzipped || ((format === 'fit' || format === 'geojson') && arrayBuffer.byteLength > 256 * 1024))) {
+        const processed = await readInWorker(arrayBuffer, { signal, format, gzipped, maxBytes: MAX_DECOMPRESSED_IMPORT_BYTES });
+        result = processed.result;
+        arrayBuffer = processed.buffer;
+    } else if (gzipped) {
+        await ensurePako();
+        arrayBuffer = (await inflateBoundedAsync(new Uint8Array(arrayBuffer), MAX_DECOMPRESSED_IMPORT_BYTES)).buffer;
     }
-
-    const routeName = result.name || baseName;
-    const elevations = normalizeElevations(result.elevations, result.coordinates.length);
-    addImportedRoute(routeName, result.coordinates, elevations);
+    if (signal?.aborted) throw new DOMException('Import cancelled.', 'AbortError');
+    const baseName = file.name.replace(/\.(fit|tcx|gpx|kml|geojson|json)(\.gz)?$/i, '');
+    if (!result) {
+        if (format === 'fit') result = parseFIT(arrayBuffer);
+        else result = { gpx: parseGPX, kml: parseKML, tcx: parseTCX, geojson: parseGeoJSON }[format](new TextDecoder().decode(arrayBuffer));
+    }
+    const tracks = result.tracks || [result];
+    const validTracks = tracks.filter(track => track.coordinates.length >= 2);
+    if (!validTracks.length) throw new Error('A track needs at least two valid points.');
+    routeListBatch = true;
+    const added = [];
+    try {
+        for (const [index, track] of validTracks.entries()) added.push(addImportedRoute(track.name || (validTracks.length > 1 ? `${baseName} ${index + 1}` : baseName), track.coordinates, track.elevations, track));
+    } finally { routeListBatch = false; }
+    updateRouteMapStyles(); renderRoutesList(); updateBulkButtons();
+    saveToStorage(); setMobileView(routesDirty ? 'planner' : 'map'); fitVisibleRoutes();
+    const diagnostics = { skippedPoints: 0, skippedTracks: tracks.length - validTracks.length, unsupportedGeometries: 0, ...result.diagnostics };
+    showStatus(`Imported ${added.length} track(s) from ${file.name}. ${importWarnings(diagnostics).join(' ')}`.trim());
+    return { added, diagnostics };
 }
 
-function importGPX(xmlString, filename) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(xmlString, 'application/xml');
-
-    if (doc.querySelector('parsererror')) {
-        throw new Error('Invalid GPX file');
-    }
-
-    // Extract track points
-    const trkpts = doc.querySelectorAll('trkpt');
-    if (trkpts.length === 0) {
-        // Try route points
-        const rtepts = doc.querySelectorAll('rtept');
-        if (rtepts.length === 0) throw new Error('No track or route points found');
-        return importFromPoints(rtepts, doc, filename);
-    }
-
-    return importFromPoints(trkpts, doc, filename);
-}
-
-function importFromPoints(pointElements, doc, filename) {
-    const coordinates = [];
-    const elevations = [];
-
-    pointElements.forEach(pt => {
-        const lat = Number(pt.getAttribute('lat'));
-        const lng = Number(pt.getAttribute('lon'));
-        if (Number.isFinite(lat) && Number.isFinite(lng) && isValidLatLng({ latitude: lat, longitude: lng })) {
-            coordinates.push([lat, lng]);
-            const eleEl = pt.querySelector('ele');
-            const elevation = eleEl ? Number(eleEl.textContent) : null;
-            elevations.push(Number.isFinite(elevation) ? elevation : null);
-        }
-    });
-
-    if (coordinates.length === 0) throw new Error('No valid coordinates found');
-
-    // Get name from metadata or track
-    const nameEl = doc.querySelector('trk > name') || doc.querySelector('metadata > name') || doc.querySelector('rte > name');
-    const name = nameEl ? nameEl.textContent : filename.replace(/\.(gpx|kml)$/i, '');
-
-    addImportedRoute(name, coordinates, elevations);
-}
-
-function importKML(xmlString, filename) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(xmlString, 'application/xml');
-
-    if (doc.querySelector('parsererror')) {
-        throw new Error('Invalid KML file');
-    }
-
-    const coordsEl = doc.querySelector('coordinates');
-    if (!coordsEl) throw new Error('No coordinates found in KML');
-
-    const coordinates = [];
-    const elevations = [];
-
-    coordsEl.textContent.trim().split(/\s+/).forEach(triplet => {
-        const parts = triplet.split(',');
-        if (parts.length >= 2) {
-            const lng = Number(parts[0]);
-            const lat = Number(parts[1]);
-            const ele = parts.length >= 3 ? Number(parts[2]) : null;
-            if (Number.isFinite(lat) && Number.isFinite(lng) && isValidLatLng({ latitude: lat, longitude: lng })) {
-                coordinates.push([lat, lng]);
-                elevations.push(Number.isFinite(ele) ? ele : null);
-            }
-        }
-    });
-
-    if (coordinates.length === 0) throw new Error('No valid coordinates found in KML');
-
-    const nameEl = doc.querySelector('Placemark > name') || doc.querySelector('Document > name');
-    const name = nameEl ? nameEl.textContent : filename.replace(/\.(gpx|kml)$/i, '');
-
-    addImportedRoute(name, coordinates, elevations);
-}
-
-function addImportedRoute(name, coordinates, elevations) {
-    const safeCoordinates = normalizeCoordinates(coordinates);
-    if (safeCoordinates.length === 0) throw new Error('No valid coordinates found');
+function addImportedRoute(name, coordinates, elevations, metadata = {}) {
+    const track = normalizeTrack({ ...metadata, coordinates, elevations });
+    const safeCoordinates = track.coordinates;
+    if (safeCoordinates.length < 2) throw new Error('A track needs at least two valid points.');
 
     // Pick a color
     if (availableColorIndices.length === 0) resetColorPool();
@@ -2365,20 +2222,15 @@ function addImportedRoute(name, coordinates, elevations) {
     const colorIndex = availableColorIndices.splice(poolIdx, 1)[0];
     const color = COLOR_PALETTE[colorIndex];
 
-    const routeId = Date.now() + Math.floor(Math.random() * 1000);
-    const safeElevations = normalizeElevations(elevations, safeCoordinates.length);
-    const distance = calculateRouteDistance(safeCoordinates);
-
-    const polylineLayer = L.polyline(safeCoordinates, {
-        color: color,
-        weight: ROUTE_LINE_WEIGHT,
-        opacity: ROUTE_LINE_OPACITY
-    }).addTo(map);
-
-    const markers = createRouteMarkers(safeCoordinates, color);
+    const routeId = nextRouteId();
+    const safeElevations = track.elevations;
+    const distance = trackDistance(track);
 
     const hasElevation = safeElevations && safeElevations.some(e => e !== null);
     const route = {
+        ...track,
+        source: 'import',
+        createdAt: new Date().toISOString(),
         id: routeId,
         name: typeof name === 'string' && name.trim() ? name.trim() : 'Imported route',
         origin: fallbackCoordinateLabel(safeCoordinates[0]),
@@ -2388,34 +2240,21 @@ function addImportedRoute(name, coordinates, elevations) {
         color: color,
         coordinates: safeCoordinates,
         elevations: hasElevation ? safeElevations : null,
-        polylineLayer: polylineLayer,
-        markers: markers,
         distance: Math.round(distance),
         duration: null,
         visible: true,
-        elevationStatus: hasElevation ? 'ready' : null
+        elevationStatus: hasElevation ? (safeElevations.every(value => value !== null) ? 'ready' : 'partial') : null
     };
 
     routes.push(route);
-    updateRouteMapStyles();
-
-    bindRoutePopup(polylineLayer, route);
-    bindRouteHoverEffects(route);
-    map.fitBounds(polylineLayer.getBounds(), { padding: [50, 50] });
-
-    renderRoutesList();
-    updateBulkButtons();
-    saveToStorage();
-    showStatus(`Imported: ${route.name} (${safeCoordinates.length} points, ${formatDistance(distance)})`);
-}
-
-function haversineDistance([lat1, lon1], [lat2, lon2]) {
-    const R = 6371000; // Earth radius in meters
-    const toRad = d => d * Math.PI / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    routeMap.add(route);
+    if (!routeListBatch) {
+        updateRouteMapStyles(); renderRoutesList(); updateBulkButtons();
+        routeMap.fit(route.id);
+        saveToStorage();
+        showStatus(`Imported: ${route.name} (${safeCoordinates.length} points, ${formatDistance(distance)})`);
+    }
+    return route;
 }
 
 // ============ Keyboard Navigation ============
@@ -2471,15 +2310,19 @@ const debouncedPreviewUpdate = debounce(updatePreviewMarkers, 150);
 document.getElementById('origin').addEventListener('input', function () {
     debouncedPreviewUpdate();
     updateInputValidation(this);
+    scheduleDraftSave();
 });
 document.getElementById('destination').addEventListener('input', function () {
     debouncedPreviewUpdate();
     updateInputValidation(this);
+    scheduleDraftSave();
 });
 document.getElementById('stopsContainer').addEventListener('input', function (e) {
     if (!e.target.matches('.stop-input')) return;
     debouncedPreviewUpdate();
     updateInputValidation(e.target);
+    updateWaypointHint();
+    scheduleDraftSave();
 });
 
 // Enter key in origin/destination triggers route
@@ -2652,12 +2495,6 @@ function setupInfoTooltips() {
     });
 }
 
-function getNextColor() {
-    // Return current color and pick a new random one
-    const color = COLOR_PALETTE[selectedColorIndex];
-    selectRandomColor();
-    return color;
-}
 
 function selectRandomColor() {
     // Refill pool if empty
@@ -2694,6 +2531,17 @@ document.addEventListener('click', function (e) {
     const routeId = actionEl.dataset.routeId ? Number(actionEl.dataset.routeId) : null;
 
     switch (action) {
+        case 'browse-import': document.getElementById('importFileInput').click(); break;
+        case 'open-api-key': openApiKeyModal(); break;
+        case 'download-all': downloadAllRoutes(); break;
+        case 'edit-route': loadRouteIntoPlanner(routeId); break;
+        case 'rename-route': openRenameModal(routeId); break;
+        case 'retry-elevation': {
+            const route = routes.find(item => item.id === routeId);
+            if (route) enrichRouteElevations(route, { force: true });
+            break;
+        }
+        case 'cancel-elevation': cancelElevation(routeId); break;
         case 'download-route':
             if (routeId != null) { downloadRoute(routeId); map.closePopup(); }
             break;
@@ -2746,7 +2594,8 @@ routesList.addEventListener('click', function (e) {
 });
 
 routesList.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.target.closest('button, input, a')) {
+        e.preventDefault();
         const item = e.target.closest('.route-item');
         if (item) {
             zoomToRoute(Number(item.dataset.routeId));
@@ -2779,14 +2628,40 @@ document.getElementById('colorOptions').addEventListener('keydown', handleColorP
 document.getElementById('unitKm').addEventListener('click', () => setUnit('km'));
 document.getElementById('unitMi').addEventListener('click', () => setUnit('mi'));
 document.getElementById('getRouteBtn').addEventListener('click', getRoute);
+document.getElementById('cancelRouteBtn')?.addEventListener('click', cancelRouteRequest);
+document.getElementById('cancelImportBtn')?.addEventListener('click', () => importController?.abort());
+document.getElementById('departureTime')?.addEventListener('change', scheduleDraftSave);
+document.getElementById('labelCoordinates')?.addEventListener('change', scheduleDraftSave);
+document.getElementById('fetchElevation')?.addEventListener('change', scheduleDraftSave);
+window.addEventListener('pagehide', saveDraft);
 document.getElementById('downloadAllBtn').addEventListener('click', downloadAllRoutes);
 document.getElementById('clearAllBtn').addEventListener('click', clearAllRoutes);
+document.getElementById('undoDeleteBtn')?.addEventListener('click', undoDelete);
+document.getElementById('cancelRenameBtn')?.addEventListener('click', closeRenameModal);
+document.getElementById('confirmRenameBtn')?.addEventListener('click', confirmRename);
+document.getElementById('renameInput')?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); confirmRename(); } });
+document.getElementById('renameModal')?.addEventListener('click', event => { if (event.target === event.currentTarget) closeRenameModal(); });
+document.querySelectorAll('button[data-mobile-view]').forEach(button => button.addEventListener('click', () => setMobileView(button.dataset.mobileView)));
+for (const [id, unit] of [['unitKm', 'km'], ['unitMi', 'mi']]) {
+    document.getElementById(id).addEventListener('keydown', event => {
+        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
+            event.preventDefault();
+            const next = event.key === 'Home' ? 'km' : event.key === 'End' ? 'mi' : unit === 'km' ? 'mi' : 'km';
+            setUnit(next); document.getElementById(next === 'km' ? 'unitKm' : 'unitMi').focus();
+        }
+    });
+}
 document.getElementById('apiKeyMapBtn').addEventListener('click', openApiKeyModal);
 document.getElementById('clickModeBtn').addEventListener('click', toggleClickMode);
 document.getElementById('cancelClickModeBtn')?.addEventListener('click', exitClickMode);
 document.getElementById('locateMeBtn').addEventListener('click', locateMe);
 document.getElementById('closeModalBtn').addEventListener('click', closeApiKeyModal);
 document.getElementById('saveApiKeyBtn').addEventListener('click', saveApiKey);
+document.getElementById('removeApiKeyBtn')?.addEventListener('click', () => {
+    removeStorageItem('localStorage', API_KEY_STORAGE_KEY);
+    removeStorageItem('sessionStorage', API_KEY_MEMORY_KEY);
+    updateApiKeyStatus(); closeApiKeyModal(); showStatus('Saved API key removed from this browser.');
+});
 document.getElementById('rememberApiKey')?.addEventListener('change', updateApiKeyStorageHint);
 document.getElementById('cancelFilenameBtn').addEventListener('click', closeFilenameModal);
 document.getElementById('confirmFilenameBtn').addEventListener('click', confirmFilenameDownload);
@@ -2888,11 +2763,12 @@ setupTravelModeToggle();
 selectRandomColor(); // Pick initial random color
 setupInfoTooltips();
 setupImport();
-setupFogOfWorld();
+setupFogOfWorld({ map, showStatus, assertFileSize, ensureJSZip, ensurePako, setupGlobalFileDropGuard });
 loadFromStorage();
+loadDraft();
 renderRoutesList();
 updateApiKeyStatus();
-checkApiKeyOnLoad();
+
 
 export {
     addStop,

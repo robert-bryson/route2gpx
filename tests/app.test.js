@@ -10,6 +10,7 @@
 import { describe, test, expect, vi, beforeAll } from 'vitest';
 const mapEventHandlers = {};
 const popupInstances = [];
+let initialBasemapCall;
 
 // ---- Setup before loading app.js ----
 beforeAll(async () => {
@@ -41,6 +42,7 @@ beforeAll(async () => {
     getCenter: vi.fn(() => [0.5, 0.5]),
     setStyle: vi.fn(),
     openPopup: vi.fn(),
+    setTooltipContent: vi.fn(),
   };
 
   const mockMarker = {
@@ -48,6 +50,10 @@ beforeAll(async () => {
     bindTooltip: vi.fn().mockReturnThis(),
     on: vi.fn().mockReturnThis(),
     _icon: null,
+    options: {},
+    getElement: vi.fn(() => null),
+    setIcon: vi.fn(),
+    setTooltipContent: vi.fn(),
   };
 
   globalThis.__mapEventHandlers = mapEventHandlers;
@@ -173,14 +179,15 @@ beforeAll(async () => {
   globalThis.JSZip.loadAsync = vi.fn(() => Promise.resolve({ files: {} }));
 
   await import('../app.js?app-test');
+  initialBasemapCall = globalThis.L.tileLayer.mock.calls[0];
 });
 
 describe('basemap initialization', () => {
   test('loads the unbundled source without a build-time CARTO key', () => {
-    expect(globalThis.L.tileLayer).toHaveBeenCalledWith(
+    expect(initialBasemapCall).toEqual([
       'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
       expect.objectContaining({ maxZoom: 19, subdomains: 'abcd' }),
-    );
+    ]);
   });
 });
 
@@ -556,7 +563,7 @@ describe('map click picker', () => {
     globalThis.exitClickMode();
     const popupCount = globalThis.__popupInstances.length;
     const routePopup = { route2gpxPopupType: 'route' };
-    const closePopup = globalThis.L.map.mock.results[0].value.closePopup;
+    const closePopup = globalThis.map.closePopup;
     closePopup.mockClear();
 
     globalThis.__mapEventHandlers.popupopen({ popup: routePopup });
@@ -1221,7 +1228,7 @@ describe('generateGPX', () => {
     expect(gpx).not.toContain('<ele>0</ele>');
   });
 
-  test('falls back to 0 elevation when data is null', () => {
+  test('omits unknown elevation instead of inventing sea level', () => {
     const route = {
       name: 'No Elevation',
       origin: 'A',
@@ -1237,7 +1244,7 @@ describe('generateGPX', () => {
     };
 
     const gpx = globalThis.generateGPX(route);
-    expect(gpx).toContain('<ele>0</ele>');
+    expect(gpx).not.toContain('<ele>');
   });
 });
 

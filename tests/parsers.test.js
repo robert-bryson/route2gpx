@@ -132,6 +132,36 @@ describe('parseFIT', () => {
 
     test('throws a controlled error on truncated FIT buffers', () => {
         expect(() => globalThis.parseFIT(new ArrayBuffer(4))).toThrow('Invalid FIT header');
+        const complete = buildFITFile([{ lat: 1, lng: 1, alt: 3000 }]);
+        expect(() => globalThis.parseFIT(complete.slice(0, -5))).toThrow('Truncated FIT');
+    });
+
+    test.each([false, true])('preserves compressed FIT rollover with a reused timestamp definition: %s', sameDefinition => {
+        const definition = (localType, includeTime) => new Uint8Array([
+            0x40 | localType, 0, 0, 20, 0, includeTime ? 3 : 2,
+            0, 4, 5, 1, 4, 5, ...(includeTime ? [253, 4, 6] : []),
+        ]);
+        const full = new Uint8Array(13);
+        const fullView = new DataView(full.buffer);
+        fullView.setInt32(1, degToSemicircles(40), true);
+        fullView.setInt32(5, degToSemicircles(-120), true);
+        fullView.setUint32(9, 1000, true);
+        const compressed = new Uint8Array(9);
+        compressed[0] = 0x80 | (sameDefinition ? 0 : 0x20) | (1025 % 32);
+        const compressedView = new DataView(compressed.buffer);
+        compressedView.setInt32(1, degToSemicircles(41), true);
+        compressedView.setInt32(5, degToSemicircles(-121), true);
+        const parts = [definition(0, true), ...(sameDefinition ? [] : [definition(1, false)]), full, compressed];
+        const dataSize = parts.reduce((total, part) => total + part.length, 0);
+        const file = new Uint8Array(14 + dataSize + 2);
+        file[0] = 14;
+        new DataView(file.buffer).setUint32(4, dataSize, true);
+        file.set([0x2e, 0x46, 0x49, 0x54], 8);
+        let offset = 14;
+        for (const part of parts) { file.set(part, offset); offset += part.length; }
+        const result = globalThis.parseFIT(file.buffer);
+        expect(result.coordinates).toHaveLength(2);
+        expect(result.times).toEqual([1000, 1025].map(time => new Date((time + 631065600) * 1000).toISOString()));
     });
 
     test('throws when no GPS data found', () => {
@@ -297,16 +327,14 @@ describe('parseGeoJSON', () => {
         expect(result.name).toBe('Route 1');
     });
 
-    test('parses Point geometry', () => {
+    test('rejects Point geometry as a route track', () => {
         const json = JSON.stringify({
             type: 'Feature',
             properties: {},
             geometry: { type: 'Point', coordinates: [-74.006, 40.7128] }
         });
 
-        const result = globalThis.parseGeoJSON(json);
-        expect(result.coordinates).toHaveLength(1);
-        expect(result.coordinates[0]).toEqual([40.7128, -74.006]);
+        expect(() => globalThis.parseGeoJSON(json)).toThrow('not route tracks');
     });
 
     test('parses bare geometry object', () => {

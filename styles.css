@@ -80,6 +80,10 @@ body {
     gap: 10px;
 }
 
+.sidebar > * {
+    flex-shrink: 0;
+}
+
 h1 {
     font-size: 1.2rem;
     color: #00d4ff;
@@ -324,9 +328,9 @@ button .icon,
     content: '';
     position: absolute;
     left: 8px;
-    bottom: -13px;
+    top: 54px;
     width: 1px;
-    height: 16px;
+    height: calc(100% - 48px);
     border-left: 2px dotted rgba(169, 182, 211, 0.42);
 }
 
@@ -335,7 +339,8 @@ button .icon,
     height: 11px;
     border-radius: 5px;
     justify-self: center;
-    margin-bottom: 13px;
+    align-self: start;
+    margin-top: 38px;
     border: 2px solid currentColor;
     color: #d7deee;
 }
@@ -465,9 +470,9 @@ button .icon,
 }
 
 .routes-list {
-    flex: 1 1 auto;
+    flex: none;
     min-height: 0;
-    overflow-y: auto;
+    overflow: visible;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -1019,13 +1024,15 @@ button .icon,
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-height: 36px;
-    padding: 0;
+    min-height: 54px;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 2px;
     border: 1px solid rgba(169, 182, 211, 0.35);
     border-radius: 6px;
     background: rgba(15, 52, 96, 0.7);
     color: #a9b6d3;
-    opacity: 0.58;
+    opacity: 1;
     transition: background 0.16s, border-color 0.16s, box-shadow 0.16s, color 0.16s, opacity 0.16s, transform 0.1s;
 }
 
@@ -1057,25 +1064,11 @@ button .icon,
 }
 
 .mode-toggle-label {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 50%;
-    transform: translateX(-50%);
-    visibility: hidden;
-    opacity: 0;
-    z-index: 20;
-    padding: 5px 8px;
-    border: 1px solid #333;
-    border-radius: 5px;
-    background: #1a1a2e;
-    color: #eee;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-    font-size: 0.74rem;
+    font-size: 0.7rem;
     font-weight: 600;
     line-height: 1;
     white-space: nowrap;
     pointer-events: none;
-    transition: opacity 0.16s, visibility 0.16s;
 }
 
 .mode-toggle:hover .mode-toggle-label,
@@ -1085,7 +1078,7 @@ button .icon,
 }
 
 .routes-section {
-    flex: 1 1 auto;
+    flex: none;
     gap: 8px;
     min-height: 0;
 }
@@ -1421,6 +1414,7 @@ hr {
     justify-content: center;
     z-index: 10000;
     padding: 20px;
+    overflow-y: auto;
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.2s, visibility 0.2s;
@@ -1437,6 +1431,10 @@ hr {
     padding: 24px;
     max-width: 420px;
     width: 100%;
+    max-height: calc(100dvh - 40px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    flex-shrink: 1;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     border: 1px solid #333;
 }
@@ -1671,6 +1669,120 @@ hr {
     border: 0;
 }
 
+.header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.route-field-main .input-with-btn {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 38px 38px;
+    justify-content: end;
+}
+
+.route-field-main .input-with-btn input {
+    grid-column: 1 / -1;
+    width: 100%;
+}
+
+
+.route-field-main .input-with-btn .btn-icon:first-of-type {
+    justify-self: end;
+}
+
+.route-planner-card > .waypoints-panel {
+    padding: 12px 0;
+    border-top: 1px solid #1e2d50;
+    border-bottom: 1px solid #1e2d50;
+}
+
+.field-hint {
+    font-size: 0.7rem;
+    color: #bcc9e2;
+}
+
+.route-options {
+    display: grid;
+    gap: 10px;
+    margin: 10px 0;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: #c6d0e4;
+}
+
+.route-options > label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.route-options input[type="checkbox"] {
+    width: auto;
+    margin-top: 3px;
+    accent-color: #00d4ff;
+}
+
+.planner-actions {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    gap: 8px;
+    background: #16213e;
+    padding: 8px 0;
+    z-index: 30;
+}
+
+#getRouteBtn {
+    flex: 1;
+    min-height: 44px;
+}
+
+.persistent-notice,
+.import-summary {
+    background: #0f3460;
+    padding: 12px;
+    border: 1px solid #2a6f96;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+.persistent-notice.error {
+    border-color: #ff6b81;
+}
+
+.persistent-notice button {
+    margin-top: 8px;
+}
+
+.import-summary ul {
+    padding-left: 18px;
+    overflow-wrap: anywhere;
+}
+
+.route-item-title {
+    overflow-wrap: anywhere;
+}
+
+.route-item-actions button {
+    min-height: 36px;
+}
+
+.routes-empty-state button {
+    margin-top: 16px;
+}
+
+.export-hint {
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+.mobile-view-toggle {
+    display: none;
+}
+
 /* Responsive improvements */
 @media (max-width: 768px) {
     body {
@@ -1680,21 +1792,48 @@ hr {
 
     .app-shell {
         flex-direction: column;
+        height: calc(100dvh - 56px - env(safe-area-inset-bottom, 0px));
     }
 
     .sidebar {
         width: 100%;
         flex: 0 0 auto;
-        height: auto;
-        max-height: 52dvh;
+        height: 100%;
+        max-height: none;
         order: 1;
         padding: 14px;
     }
 
     .map-container {
         order: 2;
-        min-height: 48dvh;
+        display: none;
+        height: 100%;
+        min-height: 0;
+        flex: 1;
     }
+
+    body[data-mobile-view="map"] .sidebar { display: none; }
+    body[data-mobile-view="map"] .map-container { display: block; }
+
+    .mobile-view-toggle {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        gap: 8px;
+        height: calc(56px + env(safe-area-inset-bottom, 0px));
+        padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+        background: #16213e;
+        border-top: 1px solid #2a6f96;
+        z-index: 1001;
+    }
+
+    .mobile-view-toggle button { flex: 1; min-height: 44px; background: #0f3460; color: #c6d0e4; }
+    .mobile-view-toggle button[aria-pressed="true"] { background: #00d4ff; color: #16213e; }
+    .route-field-main .input-with-btn { grid-template-columns: minmax(0, 1fr) 44px 44px; }
+    input[type="text"], input[type="password"], input[type="datetime-local"] { font-size: 16px; }
+    .route-item-actions button { min-height: 44px; }
 
     /* Larger touch targets on mobile */
     .btn-icon {
@@ -1763,6 +1902,11 @@ hr {
     .waypoint-buttons {
         grid-template-columns: 1fr 44px 1fr;
     }
+}
+
+@media (max-width: 768px) and (max-height: 500px) {
+    .map-controls { flex-direction: row; flex-wrap: wrap; max-width: calc(100% - 70px); }
+    .map-mode-indicator { top: 68px; right: 10px; }
 }
 
 /* Reduce motion for users who prefer it */

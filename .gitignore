@@ -8,6 +8,8 @@ terraform.tfvars.json
 
 # Node
 node_modules/
+test-results/
+playwright-report/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

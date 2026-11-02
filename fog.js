@@ -1,9 +1,13 @@
+import { inflateBounded, readZipEntryBounded } from './compression.js';
+
+let fogDependencies = null;
+const dependencies = () => fogDependencies || globalThis;
+
 // ============ Fog of World Data Format ============
 // Ported from https://github.com/CaviarChen/fog-machine (MIT License)
 // Implements parsing of Fog of World app data exports
 
 const FOW_FILENAME_MASK1 = 'olhwjsktri';
-const FOW_FILENAME_MASK2 = 'eizxdwknmo';
 const FOW_FILENAME_ENCODING = {};
 for (let i = 0; i < FOW_FILENAME_MASK1.length; i++) {
     FOW_FILENAME_ENCODING[FOW_FILENAME_MASK1.charAt(i)] = i;
@@ -51,7 +55,7 @@ class FowTile {
         return `${x}-${y}`;
     }
 
-    static create(filename, data) {
+    static create(filename, data, budget = { bytes: 0 }) {
         // Decode tile ID from filename
         const id = Number.parseInt(
             filename
@@ -60,11 +64,14 @@ class FowTile {
                 .map(ch => FOW_FILENAME_ENCODING[ch])
                 .join('')
         );
+        if (!Number.isInteger(id) || id < 0 || id >= FOW_MAP_WIDTH ** 2) throw new Error('Invalid Fog of World tile name.');
         const x = id % FOW_MAP_WIDTH;
         const y = Math.floor(id / FOW_MAP_WIDTH);
 
         // Decompress with pako
-        const actualData = pako.inflate(new Uint8Array(data));
+        const actualData = inflateBounded(new Uint8Array(data), Math.min(FOW_MAX_DECOMPRESSED_BYTES - budget.bytes, FOW_TILE_HEADER_SIZE + FOW_TILE_HEADER_LEN * FOW_BLOCK_SIZE));
+        budget.bytes += actualData.byteLength;
+        if (actualData.byteLength < FOW_TILE_HEADER_SIZE) throw new Error('Truncated Fog of World tile header.');
 
         // Parse header - 128x128 grid, each entry is uint16 index
         const header = new Uint16Array(
@@ -80,7 +87,8 @@ class FowTile {
                 const blockY = Math.floor(i / FOW_TILE_WIDTH);
                 const startOffset = FOW_TILE_HEADER_SIZE + (blockIdx - 1) * FOW_BLOCK_SIZE;
                 const endOffset = startOffset + FOW_BLOCK_SIZE;
-                const blockData = actualData.slice(startOffset, endOffset);
+                if (endOffset > actualData.length) throw new Error('Invalid Fog of World block reference.');
+                const blockData = actualData.subarray(startOffset, endOffset);
                 const bitmap = blockData.slice(0, FOW_BLOCK_BITMAP_SIZE);
                 blocks.set(FowTile.makeKey(blockX, blockY), new FowBlock(blockX, blockY, bitmap));
             }
@@ -105,9 +113,10 @@ class FogMap {
 
     static createFromFiles(files) {
         const tiles = new Map();
+        const budget = { bytes: 0 };
         files.forEach(([filename, data]) => {
             try {
-                const tile = FowTile.create(filename, data);
+                const tile = FowTile.create(filename, data, budget);
                 if (tile.blocks.size > 0) {
                     tiles.set(FowTile.makeKey(tile.x, tile.y), tile);
                 }
@@ -139,6 +148,7 @@ async function parseFogOfWorldZip(arrayBuffer) {
     let totalBytes = 0;
 
     const entries = Object.entries(zip.files);
+    if (entries.length > 16384) throw new Error('Too many files in Fog of World ZIP.');
     for (const [path, file] of entries) {
         if (file.dir) continue;
         const declaredSize = file._data?.uncompressedSize;
@@ -148,7 +158,7 @@ async function parseFogOfWorldZip(arrayBuffer) {
         // Strip directory prefix, keep just filename
         const filename = path.replace(/^.*[\\/]/, '');
         if (!filename) continue;
-        const data = await file.async('arraybuffer');
+        const data = await readZipEntryBounded(file, Math.min(16 * 1024 * 1024, FOW_MAX_DECOMPRESSED_BYTES - totalBytes));
         totalBytes += data.byteLength;
         if (totalBytes > FOW_MAX_DECOMPRESSED_BYTES) {
             throw new Error('Fog of World ZIP is too large after decompression.');
@@ -338,12 +348,12 @@ function addFogOfWorldLayer(fogMap) {
 
     currentFogMap = fogMap;
     currentFogLayer = createFogCanvasLayer(fogMap, 0.5);
-    currentFogLayer.addTo(map);
+    currentFogLayer.addTo(dependencies().map);
 
     // Fit map to fog data bounds
     const bounds = fogMap.getBounds();
     if (bounds.isValid()) {
-        map.fitBounds(bounds, { padding: [50, 50] });
+        dependencies().map.fitBounds(bounds, { padding: [50, 50] });
     }
 
     updateFogControls();
@@ -351,7 +361,7 @@ function addFogOfWorldLayer(fogMap) {
 
 function removeFogOfWorldLayer() {
     if (currentFogLayer) {
-        map.removeLayer(currentFogLayer);
+        dependencies().map.removeLayer(currentFogLayer);
         currentFogLayer = null;
         currentFogMap = null;
         updateFogControls();
@@ -362,9 +372,9 @@ function toggleFogVisibility() {
     const checkbox = document.getElementById('fogVisibilityToggle');
     if (!currentFogLayer || !currentFogMap) return;
     if (checkbox.checked) {
-        currentFogLayer.addTo(map);
+        currentFogLayer.addTo(dependencies().map);
     } else {
-        map.removeLayer(currentFogLayer);
+        dependencies().map.removeLayer(currentFogLayer);
     }
 }
 
@@ -372,7 +382,7 @@ function updateFogControls() {
     const badge = document.getElementById('fogBadge');
     if (currentFogMap) {
         badge.hidden = false;
-        document.getElementById('fogVisibilityToggle').checked = currentFogLayer && map.hasLayer(currentFogLayer);
+        document.getElementById('fogVisibilityToggle').checked = currentFogLayer && dependencies().map.hasLayer(currentFogLayer);
     } else {
         badge.hidden = true;
     }
@@ -380,6 +390,7 @@ function updateFogControls() {
 
 // ============ Fog of World File Handling ============
 async function handleFogOfWorldFile(file) {
+    const { showStatus, assertFileSize, ensureJSZip, ensurePako } = dependencies();
     showStatus('Loading Fog of World data...');
 
     try {
@@ -417,7 +428,9 @@ function isFogOfWorldZip(file) {
 }
 
 // ============ Setup Fog of World UI ============
-function setupFogOfWorld() {
+function setupFogOfWorld(context) {
+    if (context) fogDependencies = context;
+    const { setupGlobalFileDropGuard, showStatus } = dependencies();
     const dropZone = document.getElementById('fogDropZone');
     const fileInput = document.getElementById('fogFileInput');
     if (typeof setupGlobalFileDropGuard === 'function') setupGlobalFileDropGuard();
