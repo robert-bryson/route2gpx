@@ -98,6 +98,26 @@ test('keeps focus on route actions, renames, and restores a deleted route', asyn
     await expect(page.locator('.route-item-title')).toHaveText('My renamed trail');
 });
 
+test('restores keyboard focus after a map popup download dialog closes', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#importFileInput').setInputFiles(file('recorded.gpx', track));
+    const row = page.locator('.route-item');
+    const rowDownload = row.locator('[data-action="download-route"]');
+    for (const dismiss of ['cancel', 'escape']) {
+        await row.focus();
+        await page.keyboard.press('Enter');
+        const popupDownload = page.locator('.leaflet-popup [data-action="download-route"]');
+        await popupDownload.focus();
+        await page.keyboard.press('Enter');
+        await expect(page.locator('#filenameModal')).toBeVisible();
+        await expect(popupDownload).toHaveCount(0);
+        if (dismiss === 'cancel') await page.locator('#cancelFilenameBtn').click();
+        else await page.keyboard.press('Escape');
+        await expect(page.locator('#filenameModal')).not.toBeVisible();
+        await expect(rowDownload).toBeFocused();
+    }
+});
+
 test('keeps a persistence failure visible after import success', async ({ page }) => {
     await page.addInitScript(() => {
         const write = Storage.prototype.setItem;
@@ -124,6 +144,25 @@ test('uses the local import worker for gzip and large GeoJSON files', async ({ p
     await expect(page.locator('.route-item')).toHaveCount(2);
     expect(workerRequests).toHaveLength(2);
     await expect(page.locator('#storageWarning')).not.toBeVisible();
+});
+
+test('imports XML on the main thread and in workers without DOMParser or compatibility globals', async ({ page }) => {
+    await page.addInitScript(() => {
+        window.DOMParser = class { constructor() { throw new Error('XML DOM parsing is disabled for this test'); } };
+    });
+    const workerRequests = [];
+    page.on('request', request => { if (request.url().includes('/import-worker.')) workerRequests.push(request.url()); });
+    await page.goto('/');
+    await page.locator('#importFileInput').setInputFiles(file('small.gpx', track));
+    await expect(page.locator('.route-item')).toHaveCount(1);
+    const kml = `<kml><!--${'x'.repeat(300 * 1024)}--><Placemark><name>Large KML</name><LineString><coordinates>2,1,0 4,3,5</coordinates></LineString></Placemark></kml>`;
+    await page.locator('#importFileInput').setInputFiles(file('large.kml', kml));
+    await expect(page.locator('.route-item')).toHaveCount(2);
+    const tcx = '<TrainingCenterDatabase><Course><Name>Compressed TCX</Name><Track><Trackpoint><Position><LatitudeDegrees>1</LatitudeDegrees><LongitudeDegrees>2</LongitudeDegrees></Position></Trackpoint><Trackpoint><Position><LatitudeDegrees>3</LatitudeDegrees><LongitudeDegrees>4</LongitudeDegrees></Position></Trackpoint></Track></Course></TrainingCenterDatabase>';
+    await page.locator('#importFileInput').setInputFiles({ name: 'course.tcx.gz', mimeType: 'application/gzip', buffer: gzipSync(tcx) });
+    await expect(page.locator('.route-item')).toHaveCount(3);
+    expect(workerRequests).toHaveLength(2);
+    expect(await page.evaluate(() => ['getRoute', 'routes', 'distanceUnit', 'parseFIT', 'setupFogOfWorld', 'ICON_PATHS', 'iconSvg', 'renderIconPlaceholders'].filter(name => Object.hasOwn(window, name)))).toEqual([]);
 });
 
 test('loads the self-hosted Pako browser build for Fog of World imports', async ({ page }) => {

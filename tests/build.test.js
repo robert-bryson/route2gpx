@@ -6,7 +6,7 @@ import {
   rmSync, symlinkSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { createHash } from 'node:crypto';
@@ -16,9 +16,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 const projectRoot = fileURLToPath(new URL('../', import.meta.url));
 const tileTemplate = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
 const buildInputs = [
-  'build.js', 'app.js', 'parsers.js', 'fog.js', 'icons.js',
-  'track-data.js', 'gpx.js', 'gps-import.js', 'google-routes.js', 'network.js', 'elevation.js', 'compression.js', 'route-storage.js', 'route-map.js', 'import-worker.js', 'import-client.js',
-  'customHttp.yml', 'styles.css', 'index.html', 'robots.txt', 'favicon.svg',
+  ...readdirSync(projectRoot).filter(name => name.endsWith('.js')),
+  'customHttp.yml', 'styles.css', 'index.html', 'robots.txt', 'favicon.svg', 'licenses/saxes.txt',
 ];
 const unconfiguredKeys = [
   ['missing', {}],
@@ -30,6 +29,7 @@ let workspace;
 beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), 'route2gpx-build-'));
   for (const filename of buildInputs) {
+    mkdirSync(dirname(join(workspace, filename)), { recursive: true });
     copyFileSync(join(projectRoot, filename), join(workspace, filename));
   }
   symlinkSync(join(projectRoot, 'node_modules'), join(workspace, 'node_modules'), 'junction');
@@ -83,6 +83,8 @@ describe('CARTO build configuration', () => {
   test('self-hosts runtime assets with matching integrity and the shared CSP', () => {
     expect(runBuild().status).toBe(0);
     const bundle = readBuild();
+    expect(readFileSync(join(workspace, 'dist/vendor/saxes-LICENSE.txt'), 'utf8')).toBe(readFileSync(join(projectRoot, 'licenses/saxes.txt'), 'utf8'));
+    expect(readFileSync(join(workspace, 'dist/vendor/xmlchars-LICENSE.txt'), 'utf8')).toContain('contributors to xmlchars');
     expect(bundle.html).not.toContain('unpkg.com');
     expect(bundle.source).not.toContain('unpkg.com');
     expect(bundle.html).not.toMatch(/__[A-Z_]+__/);

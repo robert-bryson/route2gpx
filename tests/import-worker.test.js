@@ -19,12 +19,10 @@ test.each([false, true])('parses GeoJSON in the worker with gzip: %s', gzipped =
     }) });
 });
 
-test('returns XML bytes to the main thread after bounded decompression', () => {
-    const source = '<gpx/>';
-    self.onmessage({ data: { buffer: bufferFrom(pako.gzip(source)), format: 'gpx', gzipped: true, maxBytes: 100 } });
-    const [message, transfers] = self.postMessage.mock.calls[0];
-    expect(new TextDecoder().decode(message.buffer)).toBe(source);
-    expect(transfers).toEqual([message.buffer]);
+test('parses XML completely in the worker after bounded decompression', () => {
+    const source = '<gpx><trk><trkseg><trkpt lat="1" lon="2"/><trkpt lat="3" lon="4"/></trkseg></trk></gpx>';
+    self.onmessage({ data: { buffer: bufferFrom(pako.gzip(source)), format: 'gpx', gzipped: true, maxBytes: 1000 } });
+    expect(self.postMessage).toHaveBeenCalledWith({ result: expect.objectContaining({ coordinates: [[1, 2], [3, 4]] }) });
 });
 
 test('reports decompression limits instead of returning an expanded payload', () => {
@@ -35,4 +33,9 @@ test('reports decompression limits instead of returning an expanded payload', ()
 test('reports malformed FIT data as a structured import error', () => {
     self.onmessage({ data: { buffer: new ArrayBuffer(1), format: 'fit', gzipped: false } });
     expect(self.postMessage).toHaveBeenCalledWith({ error: 'Invalid FIT header' });
+});
+
+test.each(['unknown', 'toString', '__proto__'])('rejects an unsupported format: %s', format => {
+    self.onmessage({ data: { buffer: new ArrayBuffer(1), format, gzipped: false } });
+    expect(self.postMessage).toHaveBeenCalledWith({ error: 'Unsupported file type' });
 });

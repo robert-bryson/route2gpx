@@ -67,3 +67,19 @@ test('terminates an unresponsive worker at the deadline', async () => {
     expect(worker.terminate).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);
 });
+
+test('releases the worker and its deadline when transferring the input fails', async () => {
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+    const original = Worker;
+    vi.stubGlobal('Worker', class extends original {
+        constructor(url) {
+            super(url);
+            this.postMessage.mockImplementation(() => { throw new DOMException('Cannot clone input.', 'DataCloneError'); });
+        }
+    });
+    await expect(readInWorker(new ArrayBuffer(1), { signal: controller.signal })).rejects.toThrow('Cannot clone input');
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
+    expect(vi.getTimerCount()).toBe(0);
+});

@@ -1,13 +1,14 @@
-/**
- * Tests for pure utility functions in app.js.
- *
- * Strategy: Vitest runs with jsdom environment. We mock Leaflet and build
- * the minimal DOM structure that app.js expects at load time, then import
- * app.js as an ES module. app.js exposes a compatibility surface on globalThis
- * while the source migration continues.
- */
+/** Coordinator behavior through module actions and DOM events. */
 
-import { describe, test, expect, vi, beforeAll } from 'vitest';
+import { describe, test, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import JSZip from 'jszip';
+import * as pako from 'pako';
+import { generateGPX, escapeXml, sanitizeFilename } from '../gpx.js';
+import { haversineDistance } from '../track-data.js';
+import { escapeHtml, formatDuration } from '../route-list.js';
+import { getModeIconName, getModeIconSvg } from '../icons.js';
+let appModule;
+let mapInstance;
 const mapEventHandlers = {};
 const popupInstances = [];
 let initialBasemapCall;
@@ -38,10 +39,15 @@ beforeAll(async () => {
     bindPopup: vi.fn().mockReturnThis(),
     bindTooltip: vi.fn().mockReturnThis(),
     on: vi.fn().mockReturnThis(),
-    getBounds: vi.fn(() => [[0, 0], [1, 1]]),
+    getBounds: vi.fn(() => ({ getCenter: () => [0.5, 0.5] })),
     getCenter: vi.fn(() => [0.5, 0.5]),
     setStyle: vi.fn(),
     openPopup: vi.fn(),
+    closePopup: vi.fn(),
+    closeTooltip: vi.fn(),
+    off: vi.fn(),
+    unbindPopup: vi.fn(),
+    unbindTooltip: vi.fn(),
     setTooltipContent: vi.fn(),
   };
 
@@ -53,11 +59,14 @@ beforeAll(async () => {
     options: {},
     getElement: vi.fn(() => null),
     setIcon: vi.fn(),
+    closePopup: vi.fn(),
+    closeTooltip: vi.fn(),
+    off: vi.fn(),
+    unbindTooltip: vi.fn(),
+    unbindPopup: vi.fn(),
     setTooltipContent: vi.fn(),
   };
 
-  globalThis.__mapEventHandlers = mapEventHandlers;
-  globalThis.__popupInstances = popupInstances;
   globalThis.L = {
     map: vi.fn(() => {
       const mapMock = {
@@ -66,14 +75,17 @@ beforeAll(async () => {
         removeLayer: vi.fn(),
         on: vi.fn((eventName, handler) => {
           mapEventHandlers[eventName] = handler;
-          return mapMock;
+          mapInstance = mapMock;
+      return mapMock;
         }),
       };
+      mapInstance = mapMock;
       return mapMock;
     }),
     tileLayer: vi.fn(() => ({ addTo: vi.fn() })),
     polyline: vi.fn(() => ({ ...mockPolyline })),
     marker: vi.fn(() => ({ ...mockMarker })),
+    featureGroup: vi.fn(() => ({ getBounds: vi.fn(() => [[0, 0], [1, 1]]) })),
     divIcon: vi.fn(() => ({})),
     popup: vi.fn(() => {
       const popupMock = {
@@ -103,7 +115,9 @@ beforeAll(async () => {
     'apiKeyMapBtn', 'clickModeBtn', 'locateMeBtn', 'closeModalBtn', 'saveApiKeyBtn',
     'colorOptions', 'routeColor', 'colorDropdown', 'stopsContainer', 'apiKeyStatus', 'rememberApiKey',
     'mapModeIndicator', 'clickModeTarget', 'cancelClickModeBtn', 'originMapPickBtn', 'destinationMapPickBtn',
-    'pickWaypointMapBtn',
+    'pickWaypointMapBtn', 'undoNotice', 'undoMessage', 'undoDeleteBtn', 'cancelImportBtn',
+    'importSummary', 'importSummaryTitle', 'importSummaryItems', 'batchExportSummary', 'batchExportItems',
+    'renameModal', 'renameInput', 'cancelRenameBtn', 'confirmRenameBtn', 'exportDataHint', 'synthesizeTimes',
     'apiKeyModal', 'apiKeyInput', 'apiKeyStorageHint', 'status', 'travelMode',
     'filenameModal', 'filenameInput', 'filenamePreview', 'cancelFilenameBtn', 'confirmFilenameBtn',
     'importDropZone', 'importFileInput',
@@ -112,14 +126,14 @@ beforeAll(async () => {
 
   ids.forEach(id => {
     const el = document.createElement(
-      ['origin', 'destination', 'apiKeyInput', 'routeColor', 'filenameInput', 'rememberApiKey', 'travelMode'].includes(id) ? 'input' :
+      ['origin', 'destination', 'apiKeyInput', 'routeColor', 'filenameInput', 'rememberApiKey', 'travelMode', 'renameInput', 'synthesizeTimes'].includes(id) ? 'input' :
         id === 'importFileInput' ? 'input' : 'div'
     );
     el.id = id;
     if (id === 'importFileInput') {
       el.type = 'file';
     }
-    if (id === 'rememberApiKey') {
+    if (id === 'rememberApiKey' || id === 'synthesizeTimes') {
       el.type = 'checkbox';
     }
     if (id === 'travelMode') {
@@ -178,11 +192,16 @@ beforeAll(async () => {
   globalThis.JSZip = vi.fn();
   globalThis.JSZip.loadAsync = vi.fn(() => Promise.resolve({ files: {} }));
 
-  await import('../app.js?app-test');
+  appModule = await import('../app.js');
   initialBasemapCall = globalThis.L.tileLayer.mock.calls[0];
 });
 
 describe('basemap initialization', () => {
+  test('keeps app actions, parser functions, and mutable state off the global object', () => {
+    for (const name of ['getRoute', 'routes', 'distanceUnit', 'parseFIT', 'parseTCX', 'parseGeoJSON', 'setupFogOfWorld', 'showStatus', 'ICON_PATHS', 'MODE_ICON_NAMES', 'iconSvg', 'getModeIconName', 'getModeIconSvg', 'renderIconPlaceholders']) {
+      expect(Object.hasOwn(globalThis, name)).toBe(false);
+    }
+  });
   test('loads the unbundled source without a build-time CARTO key', () => {
     expect(initialBasemapCall).toEqual([
       'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
@@ -195,7 +214,7 @@ describe('basemap initialization', () => {
 describe('decodePolyline', () => {
   test('decodes a known encoded polyline', () => {
     // Standard test: "_p~iF~ps|U" decodes to approx (38.5, -120.2)
-    const points = globalThis.decodePolyline('_p~iF~ps|U');
+    const points = appModule.decodePolyline('_p~iF~ps|U');
     expect(points).toHaveLength(1);
     expect(points[0][0]).toBeCloseTo(38.5, 1);
     expect(points[0][1]).toBeCloseTo(-120.2, 1);
@@ -203,7 +222,7 @@ describe('decodePolyline', () => {
 
   test('decodes multi-point polyline', () => {
     // "_p~iF~ps|U_ulLnnqC_mqNvxq`@" is a well-known test case
-    const points = globalThis.decodePolyline('_p~iF~ps|U_ulLnnqC_mqNvxq`@');
+    const points = appModule.decodePolyline('_p~iF~ps|U_ulLnnqC_mqNvxq`@');
     expect(points).toHaveLength(3);
     expect(points[0][0]).toBeCloseTo(38.5, 1);
     expect(points[1][0]).toBeCloseTo(40.7, 1);
@@ -211,14 +230,14 @@ describe('decodePolyline', () => {
   });
 
   test('returns empty array for empty string', () => {
-    expect(globalThis.decodePolyline('')).toEqual([]);
+    expect(appModule.decodePolyline('')).toEqual([]);
   });
 
   test('returns empty array for malformed encoded polylines', () => {
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => { });
 
     try {
-      expect(globalThis.decodePolyline('a')).toEqual([]);
+      expect(appModule.decodePolyline('a')).toEqual([]);
       expect(consoleWarn).toHaveBeenCalledWith('Invalid encoded polyline:', expect.stringContaining('ended unexpectedly'));
     } finally {
       consoleWarn.mockRestore();
@@ -229,105 +248,105 @@ describe('decodePolyline', () => {
 // ============ formatDistance ============
 describe('formatDistance', () => {
   test('formats kilometers (small)', () => {
-    globalThis.distanceUnit = 'km';
-    expect(globalThis.formatDistance(5000)).toBe('5.0 km');
+    appModule.setUnit('km', false);
+    expect(appModule.formatDistance(5000)).toBe('5.0 km');
   });
 
   test('formats kilometers (large >= 10)', () => {
-    globalThis.distanceUnit = 'km';
-    expect(globalThis.formatDistance(15000)).toBe('15 km');
+    appModule.setUnit('km', false);
+    expect(appModule.formatDistance(15000)).toBe('15 km');
   });
 
   test('formats miles (small)', () => {
-    globalThis.setUnit('mi', false);
-    expect(globalThis.formatDistance(1609.34)).toBe('1.0 mi');
+    appModule.setUnit('mi', false);
+    expect(appModule.formatDistance(1609.34)).toBe('1.0 mi');
   });
 
   test('formats miles (large >= 10)', () => {
-    globalThis.setUnit('mi', false);
+    appModule.setUnit('mi', false);
     // 10 miles = 16093.4 meters
-    expect(globalThis.formatDistance(16093.4)).toBe('10 mi');
+    expect(appModule.formatDistance(16093.4)).toBe('10 mi');
   });
 
   // Reset to default after
   test('formats zero', () => {
-    globalThis.setUnit('km', false);
-    expect(globalThis.formatDistance(0)).toBe('0.0 km');
+    appModule.setUnit('km', false);
+    expect(appModule.formatDistance(0)).toBe('0.0 km');
   });
 });
 
 // ============ formatDuration ============
 describe('formatDuration', () => {
   test('formats minutes-only duration', () => {
-    expect(globalThis.formatDuration('1800s')).toBe('30m');
+    expect(formatDuration('1800s')).toBe('30m');
   });
 
   test('formats hours and minutes', () => {
-    expect(globalThis.formatDuration('5400s')).toBe('1h 30m');
+    expect(formatDuration('5400s')).toBe('1h 30m');
   });
 
   test('handles null/undefined', () => {
-    expect(globalThis.formatDuration(null)).toBe('—');
-    expect(globalThis.formatDuration(undefined)).toBe('—');
+    expect(formatDuration(null)).toBe('—');
+    expect(formatDuration(undefined)).toBe('—');
   });
 
   test('handles invalid string', () => {
-    expect(globalThis.formatDuration('abc')).toBe('—');
+    expect(formatDuration('abc')).toBe('—');
   });
 
   test('handles zero seconds', () => {
-    expect(globalThis.formatDuration('0s')).toBe('0m');
+    expect(formatDuration('0s')).toBe('0m');
   });
 });
 
 // ============ escapeXml ============
 describe('escapeXml', () => {
   test('escapes ampersand', () => {
-    expect(globalThis.escapeXml('a & b')).toBe('a &amp; b');
+    expect(escapeXml('a & b')).toBe('a &amp; b');
   });
 
   test('escapes angle brackets', () => {
-    expect(globalThis.escapeXml('<tag>')).toBe('&lt;tag&gt;');
+    expect(escapeXml('<tag>')).toBe('&lt;tag&gt;');
   });
 
   test('escapes quotes', () => {
-    expect(globalThis.escapeXml('"hello" \'world\'')).toBe('&quot;hello&quot; &apos;world&apos;');
+    expect(escapeXml('"hello" \'world\'')).toBe('&quot;hello&quot; &apos;world&apos;');
   });
 
   test('handles combined special chars', () => {
-    expect(globalThis.escapeXml('<a & "b">')).toBe('&lt;a &amp; &quot;b&quot;&gt;');
+    expect(escapeXml('<a & "b">')).toBe('&lt;a &amp; &quot;b&quot;&gt;');
   });
 
   test('passes through plain text', () => {
-    expect(globalThis.escapeXml('hello world')).toBe('hello world');
+    expect(escapeXml('hello world')).toBe('hello world');
   });
 
   test('handles empty string', () => {
-    expect(globalThis.escapeXml('')).toBe('');
+    expect(escapeXml('')).toBe('');
   });
 });
 
 // ============ sanitizeFilename ============
 describe('sanitizeFilename', () => {
   test('allows safe characters', () => {
-    expect(globalThis.sanitizeFilename('hello-world_123')).toBe('hello-world_123');
+    expect(sanitizeFilename('hello-world_123')).toBe('hello-world_123');
   });
 
   test('replaces special characters', () => {
-    expect(globalThis.sanitizeFilename('a/b\\c:d')).toBe('a_b_c_d');
+    expect(sanitizeFilename('a/b\\c:d')).toBe('a_b_c_d');
   });
 
   test('truncates to 50 characters', () => {
     const long = 'a'.repeat(100);
-    expect(globalThis.sanitizeFilename(long)).toHaveLength(50);
+    expect(sanitizeFilename(long)).toHaveLength(50);
   });
 
   test('handles empty string', () => {
-    expect(globalThis.sanitizeFilename('')).toBe('');
+    expect(sanitizeFilename('')).toBe('');
   });
 
   test('handles path traversal attempt', () => {
-    const result = globalThis.sanitizeFilename('../../etc/passwd');
+    const result = sanitizeFilename('../../etc/passwd');
     expect(result).not.toContain('/');
     expect(result).not.toContain('\\');
   });
@@ -336,98 +355,98 @@ describe('sanitizeFilename', () => {
 // ============ escapeHtml ============
 describe('escapeHtml', () => {
   test('escapes HTML entities', () => {
-    const result = globalThis.escapeHtml('<script>alert("xss")</script>');
+    const result = escapeHtml('<script>alert("xss")</script>');
     expect(result).not.toContain('<script>');
     expect(result).toContain('&lt;');
   });
 
   test('escapes quotes for safe attribute interpolation', () => {
-    expect(globalThis.escapeHtml('bad" onfocus="alert(1)')).toBe('bad&quot; onfocus=&quot;alert(1)');
-    expect(globalThis.escapeHtml("bad' onclick='alert(1)")).toBe('bad&#39; onclick=&#39;alert(1)');
+    expect(escapeHtml('bad" onfocus="alert(1)')).toBe('bad&quot; onfocus=&quot;alert(1)');
+    expect(escapeHtml("bad' onclick='alert(1)")).toBe('bad&#39; onclick=&#39;alert(1)');
   });
 
   test('passes through plain text', () => {
-    expect(globalThis.escapeHtml('hello world')).toBe('hello world');
+    expect(escapeHtml('hello world')).toBe('hello world');
   });
 
   test('handles empty string', () => {
-    expect(globalThis.escapeHtml('')).toBe('');
+    expect(escapeHtml('')).toBe('');
   });
 });
 
 // ============ truncate ============
 describe('truncate', () => {
   test('returns short string unchanged', () => {
-    expect(globalThis.truncate('hello', 10)).toBe('hello');
+    expect(appModule.truncate('hello', 10)).toBe('hello');
   });
 
   test('truncates long string with ellipsis', () => {
-    expect(globalThis.truncate('hello world', 5)).toBe('hello...');
+    expect(appModule.truncate('hello world', 5)).toBe('hello...');
   });
 
   test('handles exact length', () => {
-    expect(globalThis.truncate('hello', 5)).toBe('hello');
+    expect(appModule.truncate('hello', 5)).toBe('hello');
   });
 
   test('handles nullish values', () => {
-    expect(globalThis.truncate(null, 5)).toBe('');
-    expect(globalThis.truncate(undefined, 5)).toBe('');
+    expect(appModule.truncate(null, 5)).toBe('');
+    expect(appModule.truncate(undefined, 5)).toBe('');
   });
 });
 
 // ============ formatFileSize ============
 describe('formatFileSize', () => {
   test('formats bytes', () => {
-    expect(globalThis.formatFileSize(500)).toBe('500 B');
+    expect(appModule.formatFileSize(500)).toBe('500 B');
   });
 
   test('formats kilobytes', () => {
-    expect(globalThis.formatFileSize(2048)).toBe('2.0 KB');
+    expect(appModule.formatFileSize(2048)).toBe('2.0 KB');
   });
 
   test('formats megabytes', () => {
-    expect(globalThis.formatFileSize(1048576)).toBe('1.0 MB');
+    expect(appModule.formatFileSize(1048576)).toBe('1.0 MB');
   });
 
   test('formats zero', () => {
-    expect(globalThis.formatFileSize(0)).toBe('0 B');
+    expect(appModule.formatFileSize(0)).toBe('0 B');
   });
 });
 
 describe('formatDistance invalid values', () => {
   test('returns an unavailable marker for invalid distances', () => {
-    expect(globalThis.formatDistance(Number.NaN)).toBe('—');
-    expect(globalThis.formatDistance(-1)).toBe('—');
+    expect(appModule.formatDistance(Number.NaN)).toBe('—');
+    expect(appModule.formatDistance(-1)).toBe('—');
   });
 });
 
 // ============ parseLocation ============
 describe('parseLocation', () => {
   test('parses lat,lng coordinates', () => {
-    const result = globalThis.parseLocation('40.7128, -74.0060');
+    const result = appModule.parseLocation('40.7128, -74.0060');
     expect(result.location.latLng.latitude).toBeCloseTo(40.7128);
     expect(result.location.latLng.longitude).toBeCloseTo(-74.006);
   });
 
   test('parses coordinates without space', () => {
-    const result = globalThis.parseLocation('51.5074,-0.1278');
+    const result = appModule.parseLocation('51.5074,-0.1278');
     expect(result.location.latLng.latitude).toBeCloseTo(51.5074);
     expect(result.location.latLng.longitude).toBeCloseTo(-0.1278);
   });
 
   test('returns address for non-coordinate input', () => {
-    const result = globalThis.parseLocation('New York, NY');
+    const result = appModule.parseLocation('New York, NY');
     expect(result.address).toBe('New York, NY');
     expect(result.location).toBeUndefined();
   });
 
   test('returns address for partial coordinates', () => {
-    const result = globalThis.parseLocation('40.7128');
+    const result = appModule.parseLocation('40.7128');
     expect(result.address).toBe('40.7128');
   });
 
   test('returns address for out-of-range coordinate-like input', () => {
-    const result = globalThis.parseLocation('91, -181');
+    const result = appModule.parseLocation('91, -181');
     expect(result.address).toBe('91, -181');
     expect(result.location).toBeUndefined();
   });
@@ -436,14 +455,14 @@ describe('parseLocation', () => {
 // ============ coordinate helpers ============
 describe('coordinate helpers', () => {
   test('validates latitude and longitude ranges', () => {
-    expect(globalThis.isValidLatLng({ latitude: 90, longitude: 180 })).toBe(true);
-    expect(globalThis.isValidLatLng({ latitude: 90.1, longitude: 0 })).toBe(false);
-    expect(globalThis.isValidLatLng({ latitude: 0, longitude: -180.1 })).toBe(false);
+    expect(appModule.isValidLatLng({ latitude: 90, longitude: 180 })).toBe(true);
+    expect(appModule.isValidLatLng({ latitude: 90.1, longitude: 0 })).toBe(false);
+    expect(appModule.isValidLatLng({ latitude: 0, longitude: -180.1 })).toBe(false);
   });
 
   test('detects coordinate-shaped strings', () => {
-    expect(globalThis.looksLikeCoordinatePair('40.7, -74.0')).toBe(true);
-    expect(globalThis.looksLikeCoordinatePair('New York, NY')).toBe(false);
+    expect(appModule.looksLikeCoordinatePair('40.7, -74.0')).toBe(true);
+    expect(appModule.looksLikeCoordinatePair('New York, NY')).toBe(false);
   });
 });
 
@@ -454,17 +473,17 @@ describe('waypoint management', () => {
     document.getElementById('destination').value = '';
     document.getElementById('stopsContainer').innerHTML = '';
 
-    globalThis.addStop('First stop');
-    globalThis.addStop('Second stop');
-    globalThis.addStop('Third stop');
+    appModule.addStop('First stop');
+    appModule.addStop('Second stop');
+    appModule.addStop('Third stop');
 
     let rows = document.querySelectorAll('.stop-row');
-    globalThis.moveStop(rows[1].querySelector('[data-action="move-stop-up"]'), -1);
-    expect(globalThis.getStops()).toEqual(['Second stop', 'First stop', 'Third stop']);
+    appModule.moveStop(rows[1].querySelector('[data-action="move-stop-up"]'), -1);
+    expect(appModule.getStops()).toEqual(['Second stop', 'First stop', 'Third stop']);
 
     rows = document.querySelectorAll('.stop-row');
-    globalThis.moveStop(rows[1].querySelector('[data-action="move-stop-down"]'), 1);
-    expect(globalThis.getStops()).toEqual(['Second stop', 'Third stop', 'First stop']);
+    appModule.moveStop(rows[1].querySelector('[data-action="move-stop-down"]'), 1);
+    expect(appModule.getStops()).toEqual(['Second stop', 'Third stop', 'First stop']);
     expect(document.querySelector('.stop-row [data-action="move-stop-up"]').disabled).toBe(true);
     expect(document.querySelectorAll('.stop-row [data-action="move-stop-down"]')[2].disabled).toBe(true);
   });
@@ -474,12 +493,12 @@ describe('waypoint management', () => {
     document.getElementById('destination').value = 'Destination';
     document.getElementById('stopsContainer').innerHTML = '';
 
-    globalThis.addStop('First waypoint');
-    globalThis.addStop('Second waypoint');
-    globalThis.moveEndpoint('origin', 1);
+    appModule.addStop('First waypoint');
+    appModule.addStop('Second waypoint');
+    appModule.moveEndpoint('origin', 1);
 
     expect(document.getElementById('origin').value).toBe('First waypoint');
-    expect(globalThis.getStops()).toEqual(['Origin', 'Second waypoint']);
+    expect(appModule.getStops()).toEqual(['Origin', 'Second waypoint']);
     expect(document.getElementById('destination').value).toBe('Destination');
   });
 
@@ -488,12 +507,12 @@ describe('waypoint management', () => {
     document.getElementById('destination').value = 'Destination';
     document.getElementById('stopsContainer').innerHTML = '';
 
-    globalThis.addStop('First waypoint');
-    globalThis.addStop('Second waypoint');
-    globalThis.moveEndpoint('destination', -1);
+    appModule.addStop('First waypoint');
+    appModule.addStop('Second waypoint');
+    appModule.moveEndpoint('destination', -1);
 
     expect(document.getElementById('origin').value).toBe('Origin');
-    expect(globalThis.getStops()).toEqual(['First waypoint', 'Destination']);
+    expect(appModule.getStops()).toEqual(['First waypoint', 'Destination']);
     expect(document.getElementById('destination').value).toBe('Second waypoint');
   });
 
@@ -502,10 +521,10 @@ describe('waypoint management', () => {
     document.getElementById('destination').value = 'Destination';
     document.getElementById('stopsContainer').innerHTML = '';
 
-    globalThis.moveEndpoint('origin', 1);
+    appModule.moveEndpoint('origin', 1);
 
     expect(document.getElementById('origin').value).toBe('Destination');
-    expect(globalThis.getStops()).toEqual([]);
+    expect(appModule.getStops()).toEqual([]);
     expect(document.getElementById('destination').value).toBe('Origin');
   });
 });
@@ -515,15 +534,15 @@ describe('map click picker', () => {
   test('prompts before setting origin on a plain map click', () => {
     document.getElementById('origin').value = '';
     document.getElementById('destination').value = '';
-    globalThis.exitClickMode();
+    appModule.exitClickMode();
 
-    globalThis.__mapEventHandlers.click({ latlng: { lat: 40.1234567, lng: -73.9876543 } });
+    mapEventHandlers.click({ latlng: { lat: 40.1234567, lng: -73.9876543 } });
 
-    const popup = globalThis.__popupInstances.at(-1);
+    const popup = popupInstances.at(-1);
     expect(popup.content).toContain('Use this spot as origin?');
     expect(document.getElementById('origin').value).toBe('');
 
-    globalThis.confirmMapClickPrompt();
+    appModule.confirmMapClickPrompt();
 
     expect(document.getElementById('origin').value).toBe('40.123457, -73.987654');
     expect(document.getElementById('destination').value).toBe('');
@@ -532,15 +551,15 @@ describe('map click picker', () => {
   test('prompts before setting destination when origin already exists', () => {
     document.getElementById('origin').value = '39.000000, -105.000000';
     document.getElementById('destination').value = '';
-    globalThis.exitClickMode();
+    appModule.exitClickMode();
 
-    globalThis.__mapEventHandlers.click({ latlng: { lat: 41, lng: -75 } });
+    mapEventHandlers.click({ latlng: { lat: 41, lng: -75 } });
 
-    const popup = globalThis.__popupInstances.at(-1);
+    const popup = popupInstances.at(-1);
     expect(popup.content).toContain('Use this spot as destination?');
     expect(document.getElementById('destination').value).toBe('');
 
-    globalThis.confirmMapClickPrompt();
+    appModule.confirmMapClickPrompt();
 
     expect(document.getElementById('origin').value).toBe('39.000000, -105.000000');
     expect(document.getElementById('destination').value).toBe('41.000000, -75.000000');
@@ -549,29 +568,29 @@ describe('map click picker', () => {
   test('does not prompt on plain map clicks once origin and destination are set', () => {
     document.getElementById('origin').value = '39.000000, -105.000000';
     document.getElementById('destination').value = '41.000000, -75.000000';
-    globalThis.exitClickMode();
-    const popupCount = globalThis.__popupInstances.length;
+    appModule.exitClickMode();
+    const popupCount = popupInstances.length;
 
-    globalThis.__mapEventHandlers.click({ latlng: { lat: 42, lng: -76 } });
+    mapEventHandlers.click({ latlng: { lat: 42, lng: -76 } });
 
-    expect(globalThis.__popupInstances).toHaveLength(popupCount);
+    expect(popupInstances).toHaveLength(popupCount);
   });
 
   test('closes an open route popup without prompting for origin or destination', () => {
     document.getElementById('origin').value = '';
     document.getElementById('destination').value = '';
-    globalThis.exitClickMode();
-    const popupCount = globalThis.__popupInstances.length;
+    appModule.exitClickMode();
+    const popupCount = popupInstances.length;
     const routePopup = { route2gpxPopupType: 'route' };
-    const closePopup = globalThis.map.closePopup;
+    const closePopup = mapInstance.closePopup;
     closePopup.mockClear();
 
-    globalThis.__mapEventHandlers.popupopen({ popup: routePopup });
-    globalThis.__mapEventHandlers.preclick({ latlng: { lat: 39, lng: -105 } });
-    globalThis.__mapEventHandlers.click({ latlng: { lat: 39, lng: -105 } });
+    mapEventHandlers.popupopen({ popup: routePopup });
+    mapEventHandlers.preclick({ latlng: { lat: 39, lng: -105 } });
+    mapEventHandlers.click({ latlng: { lat: 39, lng: -105 } });
 
     expect(closePopup).toHaveBeenCalledWith(routePopup);
-    expect(globalThis.__popupInstances).toHaveLength(popupCount);
+    expect(popupInstances).toHaveLength(popupCount);
     expect(document.getElementById('origin').value).toBe('');
     expect(document.getElementById('destination').value).toBe('');
   });
@@ -580,8 +599,8 @@ describe('map click picker', () => {
     document.getElementById('origin').value = '';
     document.getElementById('destination').value = '';
 
-    globalThis.enterClickMode('origin', 'single');
-    globalThis.__mapEventHandlers.click({ latlng: { lat: 40.1234567, lng: -73.9876543 } });
+    appModule.enterClickMode('origin', 'single');
+    mapEventHandlers.click({ latlng: { lat: 40.1234567, lng: -73.9876543 } });
 
     expect(document.getElementById('origin').value).toBe('40.123457, -73.987654');
     expect(document.getElementById('mapModeIndicator').hidden).toBe(true);
@@ -593,18 +612,18 @@ describe('map click picker', () => {
     document.getElementById('destination').value = '';
     document.getElementById('stopsContainer').innerHTML = '';
 
-    globalThis.enterClickMode('origin', 'route');
-    globalThis.__mapEventHandlers.click({ latlng: { lat: 40, lng: -74 } });
+    appModule.enterClickMode('origin', 'route');
+    mapEventHandlers.click({ latlng: { lat: 40, lng: -74 } });
 
     expect(document.getElementById('origin').value).toBe('40.000000, -74.000000');
   expect(document.getElementById('mapModeIndicator').hidden).toBe(false);
     expect(document.getElementById('clickModeTarget').textContent).toContain('destination');
 
-    globalThis.__mapEventHandlers.click({ latlng: { lat: 41, lng: -75 } });
+    mapEventHandlers.click({ latlng: { lat: 41, lng: -75 } });
 
     expect(document.getElementById('destination').value).toBe('41.000000, -75.000000');
     expect(document.getElementById('clickModeTarget').textContent).toContain('waypoint');
-    globalThis.exitClickMode();
+    appModule.exitClickMode();
   });
 });
 
@@ -619,10 +638,10 @@ describe('geolocation', () => {
     input.value = 'Original origin';
     document.getElementById('destination').value = 'Original destination';
     document.getElementById('stopsContainer').replaceChildren();
-    globalThis.useMyLocation('origin');
+    appModule.useMyLocation('origin');
     if (change.startsWith('reordered')) {
-      globalThis.moveEndpoint('origin', 1);
-      if (change.endsWith('reverted')) globalThis.moveEndpoint('origin', 1);
+      appModule.moveEndpoint('origin', 1);
+      if (change.endsWith('reverted')) appModule.moveEndpoint('origin', 1);
     } else {
       input.value = 'New origin';
       input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -637,7 +656,7 @@ describe('geolocation', () => {
   });
 
   test.each([null, undefined, '', ' ', false, []])('rejects absent or coerced geolocation coordinates: %j', value => {
-    expect(globalThis.getValidatedPositionLatLng({ coords: { latitude: value, longitude: value } })).toBeNull();
+    expect(appModule.getValidatedPositionLatLng({ coords: { latitude: value, longitude: value } })).toBeNull();
   });
 
   test('ignores stale geolocation callbacks after a newer request starts', () => {
@@ -651,8 +670,8 @@ describe('geolocation', () => {
     document.getElementById('origin').value = '';
     document.getElementById('destination').value = '';
 
-    globalThis.useMyLocation('origin');
-    globalThis.useMyLocation('destination');
+    appModule.useMyLocation('origin');
+    appModule.useMyLocation('destination');
 
     callbacks[0]({ coords: { latitude: 10, longitude: 20 } });
     expect(document.getElementById('origin').value).toBe('');
@@ -664,8 +683,8 @@ describe('geolocation', () => {
   });
 
   test('rejects malformed geolocation coordinates', () => {
-    expect(globalThis.getValidatedPositionLatLng({ coords: { latitude: 91, longitude: 0 } })).toBeNull();
-    expect(globalThis.getValidatedPositionLatLng({ coords: { latitude: 45, longitude: -120 } })).toEqual({ latitude: 45, longitude: -120 });
+    expect(appModule.getValidatedPositionLatLng({ coords: { latitude: 91, longitude: 0 } })).toBeNull();
+    expect(appModule.getValidatedPositionLatLng({ coords: { latitude: 45, longitude: -120 } })).toEqual({ latitude: 45, longitude: -120 });
   });
 });
 
@@ -676,7 +695,7 @@ describe('route creation form state', () => {
     document.getElementById('origin').value = 'Origin City';
     document.getElementById('destination').value = 'Destination City';
     document.getElementById('stopsContainer').innerHTML = '';
-    globalThis.addStop('Scenic Stop');
+    appModule.addStop('Scenic Stop');
     document.getElementById('travelMode').value = 'DRIVE';
     document.getElementById('routeColor').value = '#ff4757';
     localStorage.setItem('route2gpx_apiKey', 'test-key');
@@ -702,10 +721,10 @@ describe('route creation form state', () => {
     });
 
     try {
-      await globalThis.getRoute();
+      await appModule.getRoute();
       expect(document.getElementById('origin').value).toBe('Origin City');
       expect(document.getElementById('destination').value).toBe('Destination City');
-      expect(globalThis.getStops()).toEqual(['Scenic Stop']);
+      expect(appModule.getStops()).toEqual(['Scenic Stop']);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -734,7 +753,7 @@ describe('route creation form state', () => {
     }));
 
     try {
-      await globalThis.getRoute();
+      await appModule.getRoute();
       expect(document.getElementById('status').textContent).toContain('Route geometry was missing or invalid');
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     } finally {
@@ -751,18 +770,18 @@ describe('route label helpers', () => {
       status: 'OK',
       results: [{ formatted_address: 'Telluride, CO 81435, USA' }],
     };
-    expect(globalThis.getReverseGeocodeDisplayName(data)).toBe('Telluride, CO 81435, USA');
+    expect(appModule.getReverseGeocodeDisplayName(data)).toBe('Telluride, CO 81435, USA');
   });
 
   test('extracts display names from Places-shaped results', () => {
     const data = {
       places: [{ displayName: { text: 'Black Canyon of the Gunnison National Park' } }],
     };
-    expect(globalThis.getReverseGeocodeDisplayName(data)).toBe('Black Canyon of the Gunnison National Park');
+    expect(appModule.getReverseGeocodeDisplayName(data)).toBe('Black Canyon of the Gunnison National Park');
   });
 
   test('builds route names from resolved endpoint labels', () => {
-    expect(globalThis.buildRouteName('Montrose, CO', 'Telluride, CO')).toBe('Montrose, CO → Telluride, CO');
+    expect(appModule.buildRouteName('Montrose, CO', 'Telluride, CO')).toBe('Montrose, CO → Telluride, CO');
   });
 
   test('resolves coordinate endpoint labels with reverse geocoding', async () => {
@@ -776,7 +795,7 @@ describe('route label helpers', () => {
     }));
 
     try {
-      await expect(globalThis.resolveRouteEndpointLabel('38.1520, -107.7610', 'test-key')).resolves.toBe('Ridgway, CO 81432, USA');
+      await expect(appModule.resolveRouteEndpointLabel('38.1520, -107.7610', 'test-key')).resolves.toBe('Ridgway, CO 81432, USA');
       expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining('maps.googleapis.com/maps/api/geocode/json'), expect.any(Object));
     } finally {
       globalThis.fetch = originalFetch;
@@ -791,7 +810,7 @@ describe('route label helpers', () => {
     }));
 
     try {
-      await expect(globalThis.resolveRouteEndpointLabel('38.1520, -107.7610', 'test-key')).resolves.toBe('38.1520, -107.7610');
+      await expect(appModule.resolveRouteEndpointLabel('38.1520, -107.7610', 'test-key')).resolves.toBe('38.1520, -107.7610');
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -801,11 +820,11 @@ describe('route label helpers', () => {
 // ============ assertFileSize ============
 describe('assertFileSize', () => {
   test('allows files at the configured limit', () => {
-    expect(() => globalThis.assertFileSize({ name: 'route.gpx', size: 1024 }, 1024, 'route.gpx')).not.toThrow();
+    expect(() => appModule.assertFileSize({ name: 'route.gpx', size: 1024 }, 1024, 'route.gpx')).not.toThrow();
   });
 
   test('rejects files above the configured limit', () => {
-    expect(() => globalThis.assertFileSize({ name: 'huge.gpx', size: 2048 }, 1024, 'huge.gpx')).toThrow('too large');
+    expect(() => appModule.assertFileSize({ name: 'huge.gpx', size: 2048 }, 1024, 'huge.gpx')).toThrow('too large');
   });
 });
 
@@ -819,24 +838,24 @@ describe('storage handling', () => {
     });
 
     try {
-      globalThis.saveToStorage();
+      appModule.saveToStorage();
       expect(consoleError).toHaveBeenCalledWith('Failed to save to storage:', 'Storage is full');
       expect(document.getElementById('status').textContent).toContain('browser storage is full');
       expect(document.getElementById('status').className).toContain('error');
     } finally {
       globalThis.localStorage.setItem.mockImplementation(originalSetItem);
       consoleError.mockRestore();
-      globalThis.saveToStorage();
+      appModule.saveToStorage();
     }
   });
 
   test('skips invalid restored routes instead of poisoning later storage restores', () => {
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => { });
-    globalThis.routes = [];
+    document.querySelectorAll('#routesList .route-item').forEach(row => appModule.removeRoute(Number(row.dataset.routeId)));
 
     try {
-      expect(globalThis.restoreRoute({ name: 'Bad route', coordinates: [[95, 0], [40, -74]] })).toBe(false);
-      expect(globalThis.routes).toHaveLength(0);
+      expect(appModule.restoreRoute({ name: 'Bad route', coordinates: [[95, 0], [40, -74]] })).toBe(false);
+      expect(document.querySelectorAll('#routesList .route-item')).toHaveLength(0);
       expect(consoleWarn).toHaveBeenCalledWith('Skipping saved route with invalid coordinates');
     } finally {
       consoleWarn.mockRestore();
@@ -844,9 +863,9 @@ describe('storage handling', () => {
   });
 
   test('restores valid routes with safe palette classes and no inline route styles', () => {
-    globalThis.routes = [];
+    document.querySelectorAll('#routesList .route-item').forEach(row => appModule.removeRoute(Number(row.dataset.routeId)));
 
-    const restored = globalThis.restoreRoute({
+    const restored = appModule.restoreRoute({
       id: 123,
       name: 'Quoted "Route"',
       origin: 'A',
@@ -859,14 +878,14 @@ describe('storage handling', () => {
     });
 
     expect(restored).toBe(true);
-    expect(globalThis.routes).toHaveLength(1);
+    expect(document.querySelectorAll('#routesList .route-item')).toHaveLength(1);
     const routeItem = document.querySelector('.route-item');
     expect(routeItem.classList.contains('route-color-0')).toBe(true);
     expect(routeItem.hasAttribute('style')).toBe(false);
     expect(routeItem.querySelector('.route-number').hasAttribute('style')).toBe(false);
     expect(routeItem.getAttribute('aria-label')).toContain('Quoted "Route"');
 
-    globalThis.routes = [];
+    document.querySelectorAll('#routesList .route-item').forEach(row => appModule.removeRoute(Number(row.dataset.routeId)));
     document.getElementById('routesList').innerHTML = '';
   });
 });
@@ -877,11 +896,11 @@ describe('API key storage', () => {
     localStorage.removeItem('route2gpx_apiKey');
     sessionStorage.removeItem('route2gpx_apiKey_session');
 
-    globalThis.openApiKeyModal();
+    appModule.openApiKeyModal();
 
     expect(document.getElementById('rememberApiKey').checked).toBe(false);
     expect(document.getElementById('apiKeyStorageHint').textContent).toContain('tab');
-    globalThis.closeApiKeyModal();
+    appModule.closeApiKeyModal();
   });
 
   test('saves unchecked API keys in session storage only', () => {
@@ -890,11 +909,11 @@ describe('API key storage', () => {
     document.getElementById('apiKeyInput').value = 'session-key';
     document.getElementById('rememberApiKey').checked = false;
 
-    globalThis.saveApiKey();
+    appModule.saveApiKey();
 
     expect(sessionStorage.getItem('route2gpx_apiKey_session')).toBe('session-key');
     expect(localStorage.getItem('route2gpx_apiKey')).toBeNull();
-    expect(globalThis.getApiKey()).toBe('session-key');
+    expect(appModule.getApiKey()).toBe('session-key');
   });
 
   test('falls back to session storage when persistent storage fails', () => {
@@ -910,7 +929,7 @@ describe('API key storage', () => {
     });
 
     try {
-      globalThis.saveApiKey();
+      appModule.saveApiKey();
       expect(sessionStorage.getItem('route2gpx_apiKey_session')).toBe('fallback-key');
       expect(document.getElementById('rememberApiKey').checked).toBe(false);
       expect(document.getElementById('status').textContent).toContain('this tab');
@@ -938,7 +957,7 @@ describe('elevation data', () => {
     }));
 
     try {
-      const elevations = await globalThis.fetchElevations([[1, 2], [3, 4]]);
+      const elevations = await appModule.fetchElevations([[1, 2], [3, 4]]);
       expect(elevations).toEqual([123, null]);
       expect(elevations).toHaveLength(2);
     } finally {
@@ -950,7 +969,7 @@ describe('elevation data', () => {
 // ============ travel mode toggle ============
 describe('travel mode toggle', () => {
   test('selectTravelMode updates hidden value and selected button', () => {
-    globalThis.selectTravelMode('WALK');
+    appModule.selectTravelMode('WALK');
 
     expect(document.getElementById('travelMode').value).toBe('WALK');
     expect(document.querySelector('[data-travel-mode="WALK"]').getAttribute('aria-checked')).toBe('true');
@@ -969,36 +988,36 @@ describe('travel mode toggle', () => {
 // ============ sanitizeColor ============
 describe('sanitizeColor', () => {
   test('accepts valid hex color', () => {
-    expect(globalThis.sanitizeColor('#ff4757', 0)).toBe('#ff4757');
+    expect(appModule.sanitizeColor('#ff4757', 0)).toBe('#ff4757');
   });
 
   test('accepts 3-digit hex', () => {
-    expect(globalThis.sanitizeColor('#f00', 0)).toBe('#f00');
+    expect(appModule.sanitizeColor('#f00', 0)).toBe('#f00');
   });
 
   test('rejects malformed hex lengths', () => {
-    expect(globalThis.sanitizeColor('#12345', 0)).not.toBe('#12345');
-    expect(globalThis.sanitizeColor('#1234567', 0)).not.toBe('#1234567');
+    expect(appModule.sanitizeColor('#12345', 0)).not.toBe('#12345');
+    expect(appModule.sanitizeColor('#1234567', 0)).not.toBe('#1234567');
   });
 
   test('rejects invalid color and returns fallback', () => {
-    const result = globalThis.sanitizeColor('not-a-color', 0);
+    const result = appModule.sanitizeColor('not-a-color', 0);
     expect(result).toMatch(/^#[0-9a-fA-F]+$/);
   });
 
   test('rejects empty string', () => {
-    const result = globalThis.sanitizeColor('', 0);
+    const result = appModule.sanitizeColor('', 0);
     expect(result).toMatch(/^#[0-9a-fA-F]+$/);
   });
 
   test('rejects non-string input', () => {
-    const result = globalThis.sanitizeColor(null, 0);
+    const result = appModule.sanitizeColor(null, 0);
     expect(result).toMatch(/^#[0-9a-fA-F]+$/);
   });
 
   test('cycles fallback index through palette', () => {
-    const a = globalThis.sanitizeColor(null, 0);
-    const b = globalThis.sanitizeColor(null, 1);
+    const a = appModule.sanitizeColor(null, 0);
+    const b = appModule.sanitizeColor(null, 1);
     // Different fallback indices should give different colors
     expect(a).not.toBe(b);
   });
@@ -1017,7 +1036,7 @@ describe('color palette', () => {
   });
 
   test('selectColor updates hidden value and checked state', () => {
-    globalThis.selectColor(2);
+    appModule.selectColor(2);
 
     expect(document.getElementById('routeColor').value).toBe('#1e90ff');
     expect(document.getElementById('colorSwatch').classList.contains('route-color-2')).toBe(true);
@@ -1040,7 +1059,7 @@ describe('color palette', () => {
   });
 
   test('arrow keys move selection through color swatches', () => {
-    globalThis.selectColor(0);
+    appModule.selectColor(0);
     const firstColor = document.querySelector('[data-color-index="0"]');
 
     firstColor.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
@@ -1053,43 +1072,43 @@ describe('color palette', () => {
 // ============ getModeIconName ============
 describe('getModeIconName', () => {
   test('returns car icon for DRIVE', () => {
-    expect(globalThis.getModeIconName('DRIVE')).toBe('car-front');
+    expect(getModeIconName('DRIVE')).toBe('car-front');
   });
 
   test('returns bus icon for TRANSIT', () => {
-    expect(globalThis.getModeIconName('TRANSIT')).toBe('bus-front');
+    expect(getModeIconName('TRANSIT')).toBe('bus-front');
   });
 
   test('returns bicycle icon for BICYCLE', () => {
-    expect(globalThis.getModeIconName('BICYCLE')).toBe('bike');
+    expect(getModeIconName('BICYCLE')).toBe('bike');
   });
 
   test('returns walk icon for WALK', () => {
-    expect(globalThis.getModeIconName('WALK')).toBe('footprints');
+    expect(getModeIconName('WALK')).toBe('footprints');
   });
 
   test('returns pin icon for unknown mode', () => {
-    expect(globalThis.getModeIconName('UNKNOWN')).toBe('map-pin');
+    expect(getModeIconName('UNKNOWN')).toBe('map-pin');
   });
 
   test('renders accessible decorative SVG markup', () => {
-    expect(globalThis.getModeIconSvg('DRIVE')).toContain('<svg');
-    expect(globalThis.getModeIconSvg('DRIVE')).toContain('aria-hidden="true"');
-    expect(globalThis.getModeIconSvg('DRIVE')).toContain('focusable="false"');
+    expect(getModeIconSvg('DRIVE')).toContain('<svg');
+    expect(getModeIconSvg('DRIVE')).toContain('aria-hidden="true"');
+    expect(getModeIconSvg('DRIVE')).toContain('focusable="false"');
   });
 });
 
 // ============ resetColorPool ============
 describe('resetColorPool', () => {
   test('is callable without error', () => {
-    // resetColorPool mutates internal let variables not on globalThis,
+    // The pool state stays private to the module,
     // but we can verify it runs without throwing
-    expect(() => globalThis.resetColorPool()).not.toThrow();
+    expect(() => appModule.resetColorPool()).not.toThrow();
   });
 
   test('selectRandomColor advances the color', () => {
     // selectRandomColor calls resetColorPool internally and picks a new color
-    expect(() => globalThis.selectRandomColor()).not.toThrow();
+    expect(() => appModule.selectRandomColor()).not.toThrow();
   });
 });
 
@@ -1109,7 +1128,7 @@ describe('generateGPX', () => {
       id: 1,
     };
 
-    const gpx = globalThis.generateGPX(route);
+    const gpx = generateGPX(route);
 
     expect(gpx).toContain('<?xml version="1.0" encoding="UTF-8"?>');
     expect(gpx).toContain('<gpx version="1.1"');
@@ -1135,7 +1154,7 @@ describe('generateGPX', () => {
       id: 2,
     };
 
-    const gpx = globalThis.generateGPX(route);
+    const gpx = generateGPX(route);
     expect(gpx).toContain('<wpt');
     expect(gpx).toContain('Start: Start Place');
     expect(gpx).toContain('End: End Place');
@@ -1155,7 +1174,7 @@ describe('generateGPX', () => {
       id: 3,
     };
 
-    const gpx = globalThis.generateGPX(route);
+    const gpx = generateGPX(route);
     expect(gpx).toContain('<wpt lat="40.500000" lon="-74.500000">');
     expect(gpx).toContain('Stop 1: 40.5, -74.5');
   });
@@ -1174,7 +1193,7 @@ describe('generateGPX', () => {
       id: 3,
     };
 
-    const gpx = globalThis.generateGPX(route);
+    const gpx = generateGPX(route);
     expect((gpx.match(/<wpt /g) || [])).toHaveLength(2);
     expect(gpx).toContain('Stops: Coffee &amp; Pie');
     expect(gpx).not.toContain('<name>Stop 1: Coffee');
@@ -1193,7 +1212,7 @@ describe('generateGPX', () => {
       id: 30,
     };
 
-    expect(() => globalThis.generateGPX(route)).not.toThrow();
+    expect(() => generateGPX(route)).not.toThrow();
   });
 
   test('escapes XML in route names', () => {
@@ -1210,7 +1229,7 @@ describe('generateGPX', () => {
       id: 4,
     };
 
-    const gpx = globalThis.generateGPX(route);
+    const gpx = generateGPX(route);
     expect(gpx).not.toContain('<A>');
     expect(gpx).toContain('&lt;A&gt;');
     expect(gpx).toContain('&amp;');
@@ -1230,7 +1249,7 @@ describe('generateGPX', () => {
       id: 5,
     };
 
-    const gpx = globalThis.generateGPX(route);
+    const gpx = generateGPX(route);
     expect(gpx).toContain('minlat="10.000000"');
     expect(gpx).toContain('maxlat="30.000000"');
     expect(gpx).toContain('minlon="20.000000"');
@@ -1252,7 +1271,7 @@ describe('generateGPX', () => {
       id: 6,
     };
 
-    const gpx = globalThis.generateGPX(route);
+    const gpx = generateGPX(route);
     expect(gpx).toContain('<ele>150.5</ele>');
     expect(gpx).toContain('<ele>200.3</ele>');
     expect(gpx).not.toContain('<ele>0</ele>');
@@ -1273,7 +1292,7 @@ describe('generateGPX', () => {
       id: 7,
     };
 
-    const gpx = globalThis.generateGPX(route);
+    const gpx = generateGPX(route);
     expect(gpx).not.toContain('<ele>');
   });
 });
@@ -1281,27 +1300,27 @@ describe('generateGPX', () => {
 // ============ getModeIconName (extended) ============
 describe('getModeIconName extended', () => {
   test('returns folder icon for IMPORTED', () => {
-    expect(globalThis.getModeIconName('IMPORTED')).toBe('folder-up');
+    expect(getModeIconName('IMPORTED')).toBe('folder-up');
   });
 });
 
 // ============ haversineDistance ============
 describe('haversineDistance', () => {
   test('computes zero for same point', () => {
-    const d = globalThis.haversineDistance([40.0, -74.0], [40.0, -74.0]);
+    const d = haversineDistance([40.0, -74.0], [40.0, -74.0]);
     expect(d).toBe(0);
   });
 
   test('computes approximately correct distance', () => {
     // NYC to LA approx 3,944 km
-    const d = globalThis.haversineDistance([40.7128, -74.006], [34.0522, -118.2437]);
+    const d = haversineDistance([40.7128, -74.006], [34.0522, -118.2437]);
     expect(d).toBeGreaterThan(3900000);
     expect(d).toBeLessThan(4000000);
   });
 
   test('is symmetric', () => {
-    const d1 = globalThis.haversineDistance([40.7128, -74.006], [51.5074, -0.1278]);
-    const d2 = globalThis.haversineDistance([51.5074, -0.1278], [40.7128, -74.006]);
+    const d1 = haversineDistance([40.7128, -74.006], [51.5074, -0.1278]);
+    const d2 = haversineDistance([51.5074, -0.1278], [40.7128, -74.006]);
     expect(d1).toBeCloseTo(d2, 0);
   });
 });
@@ -1313,14 +1332,14 @@ describe('filename modal accessibility', () => {
     document.body.appendChild(returnFocusButton);
     returnFocusButton.focus();
 
-    globalThis.openFilenameModal(1, '<gpx></gpx>', 'route.gpx');
+    appModule.openFilenameModal(1, '<gpx></gpx>', 'route.gpx');
 
     const modal = document.getElementById('filenameModal');
     const input = document.getElementById('filenameInput');
-    const app = document.getElementById('app');
+    const appElement = document.getElementById('app');
     expect(modal.classList.contains('visible')).toBe(true);
     expect(document.activeElement).toBe(input);
-    expect(app.getAttribute('aria-hidden')).toBe('true');
+    expect(appElement.getAttribute('aria-hidden')).toBe('true');
 
     const escapeEvent = new KeyboardEvent('keydown', {
       key: 'Escape',
@@ -1331,9 +1350,128 @@ describe('filename modal accessibility', () => {
 
     expect(escapeEvent.defaultPrevented).toBe(true);
     expect(modal.classList.contains('visible')).toBe(false);
-    expect(app.hasAttribute('aria-hidden')).toBe(false);
+    expect(appElement.hasAttribute('aria-hidden')).toBe(false);
     expect(document.activeElement).toBe(returnFocusButton);
 
     returnFocusButton.remove();
+  });
+});
+
+describe('coordinator import and route actions', () => {
+  const source = '<gpx><trk><name>Trail</name><trkseg><trkpt lat="1" lon="2"><ele>0</ele><time>2020-01-01T00:00:00Z</time></trkpt><trkpt lat="3" lon="4"/></trkseg></trk></gpx>';
+  const inputFile = (name, content = source) => {
+    const bytes = new TextEncoder().encode(content);
+    return { name, size: bytes.byteLength, arrayBuffer: vi.fn(async () => bytes.buffer) };
+  };
+  const setFiles = files => {
+    const input = document.getElementById('importFileInput');
+    Object.defineProperty(input, 'files', { value: files, configurable: true });
+    input.dispatchEvent(new Event('change'));
+  };
+  const action = name => document.querySelector(`#routesList [data-action="${name}"]`).click();
+  const saved = () => JSON.parse(localStorage.getItem('route2gpx_routes')).routes;
+  let downloads;
+
+  beforeEach(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+    document.querySelectorAll('#routesList .route-item').forEach(row => appModule.removeRoute(Number(row.dataset.routeId)));
+    document.getElementById('stopsContainer').replaceChildren();
+    downloads = [];
+    vi.stubGlobal('JSZip', JSZip);
+    vi.stubGlobal('pako', pako);
+    vi.stubGlobal('URL', class extends URL {
+      static createObjectURL = vi.fn(() => 'blob:test-download');
+      static revokeObjectURL = vi.fn();
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () { downloads.push(this.download); });
+  });
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+  test('retains partial successes and diagnostics for a mixed import batch', async () => {
+    const partial = source.replace('<trkpt lat="1"', '<trkpt/><trkpt lat="1"').replace('</gpx>', '<trk><trkseg><trkpt lat="5" lon="6"/></trkseg></trk></gpx>');
+    setFiles([inputFile('partial.gpx', partial), inputFile('bad.txt')]);
+    await vi.waitFor(() => expect(document.getElementById('importSummaryTitle').textContent).toBe('Imported 1 of 2 file(s)'));
+    expect(document.getElementById('importSummaryItems').textContent).toContain('Skipped 1 invalid point(s)');
+    expect(document.getElementById('importSummaryItems').textContent).toContain('Skipped 1 track(s)');
+    expect(document.getElementById('importSummaryItems').textContent).toContain('Unsupported file type');
+    expect(saved()).toHaveLength(1);
+    expect(document.getElementById('cancelImportBtn').hidden).toBe(true);
+    expect(document.querySelectorAll('#routesList .route-item')).toHaveLength(1);
+  });
+
+  test('rejects oversized batches before reading files', () => {
+    const file = inputFile('trail.gpx');
+    setFiles(Array(101).fill(file));
+    expect(file.arrayBuffer).not.toHaveBeenCalled();
+    expect(document.getElementById('status').textContent).toContain('at most 100 files');
+  });
+
+  test('cancels a pending file read and prevents concurrent imports', async () => {
+    let finish;
+    const pending = { name: 'pending.gpx', size: 100, arrayBuffer: () => new Promise(resolve => { finish = resolve; }) };
+    setFiles([inputFile('first.gpx'), pending, inputFile('never.gpx')]);
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    setFiles([inputFile('concurrent.gpx')]);
+    expect(document.getElementById('status').textContent).toContain('already running');
+    document.getElementById('cancelImportBtn').click();
+    finish(new TextEncoder().encode(source).buffer);
+    await vi.waitFor(() => expect(document.getElementById('importSummaryItems').textContent).toContain('Import cancelled. Completed tracks are retained.'));
+    expect(saved()).toHaveLength(1);
+  });
+
+  test('parses gzip locally when no worker exists and rejects unusable tracks', async () => {
+    const bytes = pako.gzip(source);
+    const { added } = await appModule.handleSingleImportFile({ name: 'trail.gpx.gz', size: bytes.byteLength, arrayBuffer: async () => bytes.buffer });
+    expect(added[0].times[0]).toBe('2020-01-01T00:00:00.000Z');
+    await expect(appModule.handleSingleImportFile(inputFile('short.gpx', '<gpx><trk><trkseg><trkpt lat="1" lon="2"/></trkseg></trk></gpx>'))).rejects.toThrow('at least two');
+  });
+
+  test('coordinates visibility, row zoom, rename, deletion, and undo without global state', async () => {
+    await appModule.handleSingleImportFile(inputFile('trail.gpx'));
+    action('toggle-visibility'); expect(saved()[0].visible).toBe(false);
+    document.querySelector('#routesList .route-item').click();
+    expect(saved()[0].visible).toBe(true); expect(document.body.dataset.mobileView).toBe('map');
+    action('rename-route'); document.getElementById('renameInput').value = 'New name';
+    document.getElementById('confirmRenameBtn').click(); expect(saved()[0].name).toBe('New name');
+    action('remove-route'); expect(saved()).toHaveLength(0);
+    expect(document.getElementById('undoNotice').hidden).toBe(false);
+    document.getElementById('undoDeleteBtn').click(); expect(saved()[0].name).toBe('New name');
+    expect(document.querySelector('.route-item-title').textContent).toBe('New name');
+    vi.stubGlobal('confirm', () => true); document.getElementById('clearAllBtn').click();
+    expect(saved()).toHaveLength(0); document.getElementById('undoDeleteBtn').click(); expect(saved()).toHaveLength(1);
+  });
+
+  test('reuses stored planner inputs, mode, and waypoints through row actions', () => {
+    appModule.restoreRoute({ id: 987, name: 'Planned', coordinates: [[1, 2], [3, 4]], request: { origin: 'Start', destination: 'End', stops: ['Middle'], travelMode: 'WALK' } });
+    action('edit-route');
+    expect(document.getElementById('origin').value).toBe('Start');
+    expect(document.getElementById('destination').value).toBe('End');
+    expect(appModule.getStops()).toEqual(['Middle']); expect(document.getElementById('travelMode').value).toBe('WALK');
+    expect(JSON.parse(localStorage.getItem('route2gpx_draft')).origin).toBe('Start');
+  });
+
+  test('exports one route through its dialog and multiple routes as distinct ZIP entries', async () => {
+    await appModule.handleSingleImportFile(inputFile('trail.gpx'));
+    document.getElementById('downloadAllBtn').click();
+    expect(document.getElementById('filenameModal').classList.contains('visible')).toBe(true);
+    document.getElementById('confirmFilenameBtn').click();
+    expect(downloads).toEqual(['imported_Trail.gpx']);
+    await appModule.handleSingleImportFile(inputFile('second.gpx'));
+    const write = vi.spyOn(JSZip.prototype, 'file');
+    document.getElementById('downloadAllBtn').click();
+    await vi.waitFor(() => expect(downloads).toContain('routes.zip'));
+    expect(write.mock.calls.filter(call => call.length > 1).map(([name]) => name)).toEqual(['imported_Trail.gpx', 'imported_Trail_2.gpx']);
+    expect(document.getElementById('batchExportItems').children).toHaveLength(2);
+  });
+
+  test('falls back to individual exports if ZIP generation fails', async () => {
+    await appModule.handleSingleImportFile(inputFile('one.gpx'));
+    await appModule.handleSingleImportFile(inputFile('two.gpx'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(JSZip.prototype, 'generateAsync').mockRejectedValue(new Error('ZIP failed'));
+    document.getElementById('downloadAllBtn').click();
+    await vi.waitFor(() => expect(downloads).toHaveLength(2));
+    expect(new Set(downloads).size).toBe(2);
+    expect(document.getElementById('status').textContent).toContain('downloading GPX files individually');
   });
 });

@@ -1,7 +1,8 @@
-import { parseFIT, parseTCX, parseGeoJSON } from './parsers.js';
-import { parseGPX, parseKML } from './gps-import.js';
-import { normalizeTrack, numericValue, haversineDistance, trackDistance } from './track-data.js';
-import { generateGPX as serializeGPX, escapeXml, sanitizeFilename, uniqueGpxFilenames } from './gpx.js';
+import { createRouteList, escapeHtml, formatDuration } from './route-list.js';
+import { createAppDialogs, exportDataDescription } from './app-dialogs.js';
+import { parseImportBuffer, detectImportFormat } from './gps-import.js';
+import { normalizeTrack, numericValue, trackDistance } from './track-data.js';
+import { generateGPX, sanitizeFilename, uniqueGpxFilenames } from './gpx.js';
 import { computeRoute, validateRouteRequest, MAX_WAYPOINTS } from './google-routes.js';
 import { requestJson } from './network.js';
 import { createElevationClient } from './elevation.js';
@@ -10,7 +11,7 @@ import { createRouteStorage } from './route-storage.js';
 import { canUseImportWorker, readInWorker } from './import-client.js';
 import { createRouteMap } from './route-map.js';
 import { setupFogOfWorld } from './fog.js';
-import { iconSvg, getModeIconName, getModeIconSvg, renderIconPlaceholders } from './icons.js';
+import { iconSvg, renderIconPlaceholders } from './icons.js';
 
 // ============ State ============
 let routes = [];
@@ -20,9 +21,6 @@ let distanceUnit = 'km';
 let previewMarkers = [];
 let completedPlannerPoints = null;
 let completedPlannerRouteId = null;
-let activeModal = null;
-let activeModalReturnFocus = null;
-let activeModalReturnRoute = null;
 let statusTimer = null;
 let pendingMapClickPrompt = null;
 let activeRoutePopup = null;
@@ -36,11 +34,8 @@ let routeListBatch = false;
 let routesDirty = false;
 let draftTimer = null;
 let undoTimer = null;
-let renameRouteId = null;
 let importController = null;
 
-const API_KEY_STORAGE_KEY = 'route2gpx_apiKey';
-const API_KEY_MEMORY_KEY = 'route2gpx_apiKey_session';
 // Replaced by esbuild with CARTO_API_KEY from the build environment.
 const CARTO_API_KEY = typeof __CARTO_API_KEY__ === 'string' ? __CARTO_API_KEY__ : '';
 const routeStorage = createRouteStorage();
@@ -156,7 +151,23 @@ L.tileLayer(CARTO_API_KEY ? `${cartoTileUrl}?key=${encodeURIComponent(CARTO_API_
     subdomains: 'abcd'
 }).addTo(map);
 
-const routeMap = createRouteMap({ map, leaflet: L, markerIcon: createEndpointMarkerIcon, popupContent: createRoutePopup, onHighlight: highlightRouteListItem });
+const routeList = createRouteList({
+    list: document.getElementById('routesList'), formatDistance, getRouteColorClass,
+    onZoom: zoomToRoute, onHighlight: (id, active) => routeMap.highlight(id, active),
+});
+const renderRoutesList = () => routeList.render(routes);
+const dialogs = createAppDialogs({
+    getRoute: id => routes.find(route => route.id === id),
+    onRename: (id, name) => {
+        const route = routes.find(route => route.id === id);
+        route.name = name; route.renamed = true;
+        routeMap.updateLabels(id); renderRoutesList(); saveToStorage();
+    },
+    downloadFile, showStatus,
+});
+const { getApiKey, updateApiKeyStatus, openApiKeyModal, closeApiKeyModal, saveApiKey, openRenameModal, openFilenameModal } = dialogs;
+
+const routeMap = createRouteMap({ map, leaflet: L, markerIcon: createEndpointMarkerIcon, popupContent: routeList.popup, onHighlight: routeList.highlight });
 
 // ============ LocalStorage ============
 function loadFromStorage() {
@@ -312,76 +323,10 @@ function assertFileSize(file, maxBytes, label) {
     }
 }
 
-function createRoutePopup(route) {
-    const pointCount = route.coordinates.length;
-    const segmentCount = route.segmentStarts?.length || 1;
-    const stopCount = route.stops ? route.stops.length : 0;
-
-    return `
-        <div class="route-popup">
-            <h4>${escapeHtml(route.name)}</h4>
-            <div class="route-meta">
-                <span>${iconSvg('ruler', 'icon-sm')} ${formatDistance(route.distance)}</span>
-                <span>${iconSvg('clock', 'icon-sm')} ${formatDuration(route.duration)}</span>
-            </div>
-            <div class="route-meta">
-                <span>${getModeIconSvg(route.travelMode)} ${escapeHtml(route.travelMode.toLowerCase())}</span>
-                ${stopCount > 0 ? `<span>${iconSvg('map-pin', 'icon-sm')} ${stopCount} stop${stopCount > 1 ? 's' : ''}</span>` : ''}
-            </div>
-            <div class="route-meta route-meta-border">
-                <span>${iconSvg('route', 'icon-sm')} ${segmentCount} segment${segmentCount === 1 ? '' : 's'}</span>
-                <span>${iconSvg('route', 'icon-sm')} ${pointCount.toLocaleString()} points</span>
-            </div>
-            <div class="popup-actions">
-                <button class="popup-btn download" data-action="download-route" data-route-id="${route.id}" title="Download GPX">
-                    ${iconSvg('download', 'icon-sm')} Download
-                </button>
-                <button class="popup-btn delete" data-action="remove-route" data-route-id="${route.id}" title="Remove route">
-                    ${iconSvg('trash-2', 'icon-sm')} Remove
-                </button>
-            </div>
-        </div>
-    `;
-}
-
 function formatFileSize(bytes) {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-}
-
-function scrollRouteItemIntoViewIfNeeded(routeItem) {
-    const list = document.getElementById('routesList');
-    if (!list || !routeItem || !list.contains(routeItem) || list.clientHeight === 0) return;
-
-    const listRect = list.getBoundingClientRect();
-    const itemRect = routeItem.getBoundingClientRect();
-    const scrollPadding = 6;
-
-    if (itemRect.top >= listRect.top && itemRect.bottom <= listRect.bottom) return;
-
-    if (itemRect.top < listRect.top) {
-        list.scrollTop += itemRect.top - listRect.top - scrollPadding;
-    } else if (itemRect.bottom > listRect.bottom) {
-        list.scrollTop += itemRect.bottom - listRect.bottom + scrollPadding;
-    }
-}
-
-function highlightRouteListItem(id, active) {
-    const item = document.querySelector(`.route-item[data-route-id="${id}"]`);
-    if (!item) return;
-    item.classList.toggle('highlighted', active);
-    if (active) scrollRouteItemIntoViewIfNeeded(item);
-}
-
-function escapeHtml(text) {
-    return String(text ?? '').replace(/[&<>"']/g, char => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;'
-    }[char]));
 }
 
 const VALID_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
@@ -781,217 +726,6 @@ function toggleHelp() {
     btn.setAttribute('aria-expanded', isVisible);
 }
 
-function getFocusableElements(container) {
-    return Array.from(container.querySelectorAll(
-        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    ));
-}
-
-function setAppInert(isInert) {
-    const app = document.getElementById('app');
-    if (!app) return;
-    document.querySelectorAll('#app, .mobile-view-toggle, .skip-link').forEach(element => { element.inert = isInert; });
-    if (isInert) {
-        app.setAttribute('aria-hidden', 'true');
-    } else {
-        app.removeAttribute('aria-hidden');
-    }
-}
-
-function openModal(modal, initialFocusElement) {
-    activeModal = modal;
-    activeModalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const row = activeModalReturnFocus?.closest('.route-item');
-    activeModalReturnRoute = row ? { id: row.dataset.routeId, action: activeModalReturnFocus.dataset.action } : null;
-    setAppInert(true);
-    modal.classList.add('visible');
-    (initialFocusElement || getFocusableElements(modal)[0] || modal).focus();
-}
-
-function closeModal(modal) {
-    modal.classList.remove('visible');
-    if (activeModal === modal) {
-        activeModal = null;
-        setAppInert(false);
-        if (activeModalReturnFocus && typeof activeModalReturnFocus.focus === 'function' && document.contains(activeModalReturnFocus)) {
-            activeModalReturnFocus.focus();
-        }
-        if (activeModalReturnRoute && !document.contains(activeModalReturnFocus)) {
-            const row = document.querySelector(`#routesList [data-route-id="${activeModalReturnRoute.id}"]`);
-            (row?.querySelector(`[data-action="${activeModalReturnRoute.action}"]`) || row || document.getElementById('getRouteBtn'))?.focus();
-        }
-        activeModalReturnFocus = null;
-        activeModalReturnRoute = null;
-    }
-}
-
-function handleModalKeydown(event) {
-    if (!activeModal) return;
-
-    if (event.key === 'Escape') {
-        event.preventDefault();
-        if (activeModal.id === 'apiKeyModal') closeApiKeyModal();
-        else if (activeModal.id === 'filenameModal') closeFilenameModal();
-        else if (activeModal.id === 'renameModal') closeRenameModal();
-        return;
-    }
-
-    if (event.key !== 'Tab') return;
-
-    const focusableElements = getFocusableElements(activeModal);
-    if (focusableElements.length === 0) {
-        event.preventDefault();
-        activeModal.focus();
-        return;
-    }
-
-    const first = focusableElements[0];
-    const last = focusableElements[focusableElements.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-    }
-}
-
-document.addEventListener('keydown', handleModalKeydown, true);
-
-// ============ API Key Modal ============
-function getApiKey() {
-    return getStorageItem('sessionStorage', API_KEY_MEMORY_KEY) || getStorageItem('localStorage', API_KEY_STORAGE_KEY);
-}
-
-function isApiKeyRemembered() {
-    return Boolean(getStorageItem('localStorage', API_KEY_STORAGE_KEY));
-}
-
-function getStorageItem(storage, key) {
-    try {
-        return globalThis[storage].getItem(key) || '';
-    } catch {
-        return '';
-    }
-}
-
-function removeStorageItem(storage, key) {
-    try {
-        globalThis[storage].removeItem(key);
-    } catch {
-        // Best effort cleanup only.
-    }
-}
-
-function updateApiKeyStatus() {
-    const apiKey = getApiKey();
-    const btn = document.getElementById('apiKeyMapBtn');
-
-    if (apiKey) {
-        btn.classList.remove('missing');
-        btn.classList.add('valid');
-        btn.title = isApiKeyRemembered() ? 'API key saved on this browser — click to edit' : 'API key saved for this tab — click to edit';
-        btn.setAttribute('aria-label', btn.title);
-    } else {
-        btn.classList.remove('valid');
-        btn.classList.add('missing');
-        btn.title = 'No API key — click to add';
-        btn.setAttribute('aria-label', 'No API key, click to add');
-    }
-}
-
-
-function openApiKeyModal() {
-    const error = document.getElementById('apiKeyError');
-    if (error) error.hidden = true;
-    const modal = document.getElementById('apiKeyModal');
-    const input = document.getElementById('apiKeyInput');
-    const rememberInput = document.getElementById('rememberApiKey');
-    input.value = getApiKey();
-    if (rememberInput) rememberInput.checked = isApiKeyRemembered();
-    updateApiKeyStorageHint();
-    const remove = document.getElementById('removeApiKeyBtn');
-    if (remove) remove.disabled = !getApiKey();
-    openModal(modal, input);
-}
-
-function closeApiKeyModal() {
-    const modal = document.getElementById('apiKeyModal');
-    closeModal(modal);
-}
-
-function updateApiKeyStorageHint() {
-    const rememberInput = document.getElementById('rememberApiKey');
-    const hint = document.getElementById('apiKeyStorageHint');
-    if (!rememberInput || !hint) return;
-    hint.textContent = rememberInput.checked
-        ? 'Stored in this browser until you clear it. Restrict the key to this website and the Routes API.'
-        : 'Stored only in this tab and cleared when the tab closes.';
-}
-
-function saveApiKey() {
-    const input = document.getElementById('apiKeyInput');
-    const rememberInput = document.getElementById('rememberApiKey');
-    const key = input.value.trim();
-
-    if (key) {
-        try {
-            if (rememberInput && rememberInput.checked) {
-                localStorage.setItem(API_KEY_STORAGE_KEY, key);
-                removeStorageItem('sessionStorage', API_KEY_MEMORY_KEY);
-                showStatus('API key saved on this browser');
-            } else {
-                sessionStorage.setItem(API_KEY_MEMORY_KEY, key);
-                removeStorageItem('localStorage', API_KEY_STORAGE_KEY);
-                showStatus('API key saved for this tab');
-            }
-        } catch (error) {
-            if (!(rememberInput && rememberInput.checked)) {
-                console.error('Failed to save API key:', error.message);
-                showStatus('API key could not be saved in this browser.', true);
-                input.focus();
-                return;
-            }
-
-            console.warn('Persistent API key storage unavailable; falling back to session storage:', error.message);
-            try {
-                sessionStorage.setItem(API_KEY_MEMORY_KEY, key);
-                removeStorageItem('localStorage', API_KEY_STORAGE_KEY);
-                if (rememberInput) rememberInput.checked = false;
-                updateApiKeyStorageHint();
-                showStatus('API key saved for this tab because browser storage is unavailable');
-            } catch (fallbackError) {
-                console.error('Failed to save API key:', fallbackError.message);
-                showStatus('API key could not be saved in this browser.', true);
-                input.focus();
-                return;
-            }
-        }
-        updateApiKeyStatus();
-        closeApiKeyModal();
-    } else {
-        showStatus('Please enter a valid API key', true);
-        input.focus();
-    }
-}
-
-
-// Close modal on Escape or click outside
-document.getElementById('apiKeyModal').addEventListener('click', function (e) {
-    if (e.target === this) {
-        closeApiKeyModal();
-    }
-});
-
-document.getElementById('apiKeyInput').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        saveApiKey();
-    } else if (e.key === 'Escape') {
-        closeApiKeyModal();
-    }
-});
-
 // ============ Geolocation ============
 function getValidatedPositionLatLng(position) {
     const latitude = numericValue(position?.coords?.latitude);
@@ -1275,7 +1009,7 @@ function setUnit(unit, save = true) {
 function showStatus(message, isError = false) {
     const status = document.getElementById('status');
     clearTimeout(statusTimer);
-    if (activeModal?.id === 'apiKeyModal' && isError) {
+    if (dialogs.isOpen('apiKeyModal') && isError) {
         const error = document.getElementById('apiKeyError');
         if (error) { error.textContent = message; error.hidden = false; }
     }
@@ -1646,94 +1380,6 @@ function formatDistance(meters) {
     }
 }
 
-function formatDuration(durationStr) {
-    const seconds = parseInt(durationStr?.replace('s', ''), 10);
-    if (!Number.isFinite(seconds)) return '—';
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    if (hours > 0) {
-        return `${hours}h ${minutes}m`;
-    }
-    return `${minutes}m`;
-}
-
-
-// ============ Route List Rendering ============
-function renderRoutesList() {
-    const list = document.getElementById('routesList');
-    const focused = document.activeElement;
-    const focusedRow = focused?.closest?.('.route-item');
-    const focusState = focusedRow && list.contains(focused) ? { id: focusedRow.dataset.routeId, action: focused.dataset.action, index: [...list.children].indexOf(focusedRow) } : null;
-
-    if (routes.length === 0) {
-        list.innerHTML = `
-            <div class="routes-empty-state">
-                <div class="routes-empty-state-icon">${iconSvg('map', 'empty-state-icon')}</div>
-                <div class="routes-empty-state-title">No routes yet</div>
-                <div class="routes-empty-state-copy">Enter an origin and destination, or open a GPS file.</div>
-                <button type="button" class="btn-outline" data-action="browse-import">Import GPS file</button>
-            </div>
-        `;
-        if (focusState) list.querySelector('button')?.focus();
-        return;
-    }
-
-    list.innerHTML = routes.map((route, idx) => `
-        <div class="route-item ${getRouteColorClass(route.color, idx)}" role="listitem"
-             data-route-id="${route.id}"
-             tabindex="0"
-             aria-label="Route ${idx + 1}: ${escapeHtml(route.name)}. Press Enter to zoom and view details.">
-            <div class="route-item-header">
-                <div>
-                    <div class="route-title-row">
-                    <span class="route-number" aria-hidden="true">${idx + 1}</span>
-                    <div class="route-item-title">${escapeHtml(route.name)}</div>
-                    </div>
-                    <div class="route-item-meta">
-                        <span class="route-meta-item">${getModeIconSvg(route.travelMode)} ${escapeHtml(route.travelMode.toLowerCase())}</span> •
-                        ${formatDistance(route.distance)} • ${formatDuration(route.duration)}
-                        ${route.stops.length > 0 ? ` • ${route.stops.length} stop(s)` : ''}
-                        ${getElevationStatusText(route) ? ` • <span class="route-elevation-status">${getElevationStatusText(route)}</span>` : ''}
-                    </div>
-                </div>
-            </div>
-            <div class="route-item-actions">
-                ${route.request ? `<button type="button" class="btn-outline btn-small" data-action="edit-route" data-route-id="${route.id}">Edit / reuse</button>` : ''}
-                <button type="button" class="btn-outline btn-small" data-action="rename-route" data-route-id="${route.id}" aria-label="Rename ${escapeHtml(route.name)}">Rename</button>
-                ${route.elevationStatus !== 'ready' ? `<button type="button" class="btn-outline btn-small" data-action="${route.elevationController ? 'cancel-elevation' : 'retry-elevation'}" data-route-id="${route.id}">${route.elevationController ? 'Pause elevation' : route.elevations?.some(value => value !== null) ? 'Retry elevation' : 'Add elevation'}</button>` : ''}
-                <button class="btn-outline btn-small" data-action="toggle-visibility" data-route-id="${route.id}"
-                        aria-label="${route.visible ? 'Hide' : 'Show'} route"
-                        title="${route.visible ? 'Hide this route from the map' : 'Show this route on the map'}">
-                    <span class="icon-label">${iconSvg(route.visible ? 'eye-off' : 'eye', 'icon-sm')} ${route.visible ? 'Hide' : 'Show'}</span>
-                </button>
-                <button class="btn-outline btn-small" data-action="download-route" data-route-id="${route.id}"
-                        aria-label="Download GPX for ${escapeHtml(route.name)}"
-                        title="Download as GPX file for GPS devices">
-                    <span class="icon-label">${iconSvg('file-down', 'icon-sm')} GPX</span>
-                </button>
-                <button class="btn-secondary btn-small" data-action="remove-route" data-route-id="${route.id}"
-                        aria-label="Delete route ${escapeHtml(route.name)}"
-                        title="Remove this route permanently">
-                    ${iconSvg('trash-2', 'icon-sm')}
-                </button>
-            </div>
-        </div>
-    `).join('');
-    if (focusState) {
-        const row = [...list.children].find(item => item.dataset.routeId === focusState.id) || list.children[Math.min(focusState.index, list.children.length - 1)];
-        (row?.querySelector(`[data-action="${focusState.action}"]`) || row)?.focus({ preventScroll: true });
-    }
-}
-
-function getElevationStatusText(route) {
-    if (route.elevationStatus === 'loading') return route.elevationProgress ? `elevation ${route.elevationProgress.completed}/${route.elevationProgress.total}` : 'adding elevation';
-    if (route.elevationStatus === 'partial') return 'partial elevation';
-    if (route.elevationStatus === 'cancelled') return 'elevation paused';
-    if (route.elevationStatus === 'ready') return route.elevationSource?.sampled ? 'sampled elevation' : 'elevation ready';
-    if (route.elevationStatus === 'unavailable') return 'no elevation';
-    return '';
-}
-
 // ============ Route Actions ============
 function updateBulkButtons() {
     const hasRoutes = routes.length > 0;
@@ -1753,14 +1399,6 @@ function zoomToRoute(id) {
     setMobileView('map');
     routeMap.fit(id);
     routeMap.open(id);
-}
-
-function highlightRouteById(id) {
-    routeMap.highlight(id, true);
-}
-
-function unhighlightRouteById(id) {
-    routeMap.highlight(id, false);
 }
 
 function toggleRouteVisibility(id) {
@@ -1847,29 +1485,6 @@ function toLocalDatetime(value) {
     return Number.isFinite(date.getTime()) ? new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
 }
 
-function openRenameModal(id) {
-    const route = routes.find(item => item.id === id);
-    if (!route) return;
-    renameRouteId = id;
-    const input = document.getElementById('renameInput');
-    input.value = route.name;
-    openModal(document.getElementById('renameModal'), input);
-    input.select();
-}
-
-function closeRenameModal() {
-    closeModal(document.getElementById('renameModal'));
-    renameRouteId = null;
-}
-
-function confirmRename() {
-    const route = routes.find(item => item.id === renameRouteId);
-    const name = document.getElementById('renameInput').value.trim();
-    if (!name) { document.getElementById('renameInput').focus(); return; }
-    if (route) { route.name = name.slice(0, 200); route.renamed = true; routeMap.updateLabels(route.id); }
-    closeRenameModal(); renderRoutesList(); saveToStorage();
-}
-
 function setMobileView(view) {
     document.body.dataset.mobileView = view;
     document.querySelectorAll('[data-mobile-view]').forEach(button => {
@@ -1878,68 +1493,7 @@ function setMobileView(view) {
     if (typeof map.invalidateSize === 'function') map.invalidateSize({ pan: false });
 }
 
-// ============ GPX Export ============
-function generateGPX(route, options = {}) {
-    return serializeGPX(route, options);
-}
-
-// ============ Filename Confirmation Modal ============
-let pendingDownload = null; // { routeId, gpxContent, defaultFilename }
-
-function exportDataDescription(route) {
-    const known = route.elevations?.filter(Number.isFinite).length || 0;
-    const recorded = route.times?.filter(Boolean).length || 0;
-    return `${route.coordinates.length.toLocaleString()} points · ${route.segmentStarts?.length || 1} segment(s). Elevation: ${known}/${route.coordinates.length} points${route.elevationController || route.elevationPending ? ' (still loading)' : ''}. Recorded times: ${recorded}/${route.coordinates.length} points. Missing elevations and times are omitted.${route.elevationSource?.sampled ? ' Elevation between samples is interpolated.' : ''}${route.elevationSource?.mixed ? ' Recorded and SRTM elevations are combined.' : ''}`;
-}
-
-function openFilenameModal(routeId, gpxContent, defaultFilename) {
-    pendingDownload = { routeId, gpxContent, defaultFilename };
-    const modal = document.getElementById('filenameModal');
-    const input = document.getElementById('filenameInput');
-    const preview = document.getElementById('filenamePreview');
-    input.value = defaultFilename;
-    preview.textContent = defaultFilename;
-    const checkbox = document.getElementById('synthesizeTimes');
-    if (checkbox) checkbox.checked = false;
-    const route = routes.find(item => item.id === routeId);
-    const hint = document.getElementById('exportDataHint');
-    if (hint && route) hint.textContent = exportDataDescription(route);
-    openModal(modal, input);
-    input.select();
-}
-
-function closeFilenameModal() {
-    closeModal(document.getElementById('filenameModal'));
-    pendingDownload = null;
-}
-
-function confirmFilenameDownload() {
-    if (!pendingDownload) return;
-    let filename = document.getElementById('filenameInput').value.trim();
-    if (!filename) filename = pendingDownload.defaultFilename;
-    if (!filename.toLowerCase().endsWith('.gpx')) filename += '.gpx';
-    filename = sanitizeFilename(filename.replace(/\.gpx$/i, '')) + '.gpx';
-    const route = routes.find(item => item.id === pendingDownload.routeId);
-    const content = route ? generateGPX(route, { timePolicy: document.getElementById('synthesizeTimes')?.checked ? 'synthesize' : 'preserve' }) : pendingDownload.gpxContent;
-    downloadFile(content, filename, 'application/gpx+xml');
-    closeFilenameModal();
-}
-
-// Modal event listeners
-document.getElementById('filenameModal').addEventListener('click', function (e) {
-    if (e.target === this) closeFilenameModal();
-});
-document.getElementById('filenameInput').addEventListener('input', function () {
-    let val = this.value.trim();
-    if (!val) val = pendingDownload?.defaultFilename || 'route.gpx';
-    if (!val.toLowerCase().endsWith('.gpx')) val += '.gpx';
-    document.getElementById('filenamePreview').textContent = sanitizeFilename(val.replace(/\.gpx$/i, '')) + '.gpx';
-});
-document.getElementById('filenameInput').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') { e.preventDefault(); confirmFilenameDownload(); }
-    else if (e.key === 'Escape') closeFilenameModal();
-});
-
+// ============ GPX Downloads ============
 function downloadRoute(id) {
     const route = routes.find(r => r.id === id);
     if (!route) return;
@@ -2163,21 +1717,6 @@ function importWarnings(diagnostics) {
     return warnings;
 }
 
-function detectImportFormat(filename) {
-    const name = filename.toLowerCase();
-    if (/\.(geojson|json)\.gz$/.test(name)) return { format: 'geojson', gzipped: true };
-    if (name.endsWith('.fit.gz')) return { format: 'fit', gzipped: true };
-    if (name.endsWith('.tcx.gz')) return { format: 'tcx', gzipped: true };
-    if (name.endsWith('.gpx.gz')) return { format: 'gpx', gzipped: true };
-    if (name.endsWith('.kml.gz')) return { format: 'kml', gzipped: true };
-    if (name.endsWith('.fit')) return { format: 'fit', gzipped: false };
-    if (name.endsWith('.tcx')) return { format: 'tcx', gzipped: false };
-    if (name.endsWith('.gpx')) return { format: 'gpx', gzipped: false };
-    if (name.endsWith('.kml')) return { format: 'kml', gzipped: false };
-    if (name.endsWith('.geojson') || name.endsWith('.json')) return { format: 'geojson', gzipped: false };
-    return null;
-}
-
 async function handleSingleImportFile(file, { signal } = {}) {
     assertFileSize(file, MAX_IMPORT_FILE_BYTES, file.name);
     const detected = detectImportFormat(file.name);
@@ -2189,20 +1728,15 @@ async function handleSingleImportFile(file, { signal } = {}) {
     let arrayBuffer = await file.arrayBuffer();
 
     let result;
-    if (canUseImportWorker() && (gzipped || ((format === 'fit' || format === 'geojson') && arrayBuffer.byteLength > 256 * 1024))) {
-        const processed = await readInWorker(arrayBuffer, { signal, format, gzipped, maxBytes: MAX_DECOMPRESSED_IMPORT_BYTES });
-        result = processed.result;
-        arrayBuffer = processed.buffer;
+    if (canUseImportWorker() && (gzipped || arrayBuffer.byteLength > 256 * 1024)) {
+        ({ result } = await readInWorker(arrayBuffer, { signal, format, gzipped, maxBytes: MAX_DECOMPRESSED_IMPORT_BYTES }));
     } else if (gzipped) {
         await ensurePako();
         arrayBuffer = (await inflateBoundedAsync(new Uint8Array(arrayBuffer), MAX_DECOMPRESSED_IMPORT_BYTES)).buffer;
     }
     if (signal?.aborted) throw new DOMException('Import cancelled.', 'AbortError');
     const baseName = file.name.replace(/\.(fit|tcx|gpx|kml|geojson|json)(\.gz)?$/i, '');
-    if (!result) {
-        if (format === 'fit') result = parseFIT(arrayBuffer);
-        else result = { gpx: parseGPX, kml: parseKML, tcx: parseTCX, geojson: parseGeoJSON }[format](new TextDecoder().decode(arrayBuffer));
-    }
+    result ||= parseImportBuffer(arrayBuffer, format);
     const tracks = result.tracks || [result];
     const validTracks = tracks.filter(track => track.coordinates.length >= 2);
     if (!validTracks.length) throw new Error('A track needs at least two valid points.');
@@ -2267,7 +1801,7 @@ function addImportedRoute(name, coordinates, elevations, metadata = {}) {
 
 // ============ Keyboard Navigation ============
 document.addEventListener('keydown', function (e) {
-    if (activeModal || e.defaultPrevented) return;
+    if (dialogs.isOpen() || e.defaultPrevented) return;
 
     // Escape to exit click mode
     if (e.key === 'Escape' && clickMode) {
@@ -2586,41 +2120,6 @@ document.addEventListener('click', function (e) {
     }
 });
 
-// Handle route-item clicks and hover via delegation on routesList
-const routesList = document.getElementById('routesList');
-routesList.addEventListener('click', function (e) {
-    // If click is on an action button, let the data-action handler above deal with it
-    if (e.target.closest('[data-action]')) return;
-    // Stop propagation container
-    if (e.target.closest('.route-item-actions')) return;
-
-    const item = e.target.closest('.route-item');
-    if (item) {
-        const id = Number(item.dataset.routeId);
-        zoomToRoute(id);
-    }
-});
-
-routesList.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && !e.target.closest('button, input, a')) {
-        e.preventDefault();
-        const item = e.target.closest('.route-item');
-        if (item) {
-            zoomToRoute(Number(item.dataset.routeId));
-        }
-    }
-});
-
-routesList.addEventListener('mouseenter', function (e) {
-    const item = e.target.closest('.route-item');
-    if (item) highlightRouteById(Number(item.dataset.routeId));
-}, true);
-
-routesList.addEventListener('mouseleave', function (e) {
-    const item = e.target.closest('.route-item');
-    if (item) unhighlightRouteById(Number(item.dataset.routeId));
-}, true);
-
 // ============ Sidebar Button Bindings ============
 document.querySelector('.help-toggle').addEventListener('click', toggleHelp);
 
@@ -2645,10 +2144,6 @@ window.addEventListener('pagehide', saveDraft);
 document.getElementById('downloadAllBtn').addEventListener('click', downloadAllRoutes);
 document.getElementById('clearAllBtn').addEventListener('click', clearAllRoutes);
 document.getElementById('undoDeleteBtn')?.addEventListener('click', undoDelete);
-document.getElementById('cancelRenameBtn')?.addEventListener('click', closeRenameModal);
-document.getElementById('confirmRenameBtn')?.addEventListener('click', confirmRename);
-document.getElementById('renameInput')?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); confirmRename(); } });
-document.getElementById('renameModal')?.addEventListener('click', event => { if (event.target === event.currentTarget) closeRenameModal(); });
 document.querySelectorAll('button[data-mobile-view]').forEach(button => button.addEventListener('click', () => setMobileView(button.dataset.mobileView)));
 for (const [id, unit] of [['unitKm', 'km'], ['unitMi', 'mi']]) {
     document.getElementById(id).addEventListener('keydown', event => {
@@ -2659,20 +2154,9 @@ for (const [id, unit] of [['unitKm', 'km'], ['unitMi', 'mi']]) {
         }
     });
 }
-document.getElementById('apiKeyMapBtn').addEventListener('click', openApiKeyModal);
 document.getElementById('clickModeBtn').addEventListener('click', toggleClickMode);
 document.getElementById('cancelClickModeBtn')?.addEventListener('click', exitClickMode);
 document.getElementById('locateMeBtn').addEventListener('click', locateMe);
-document.getElementById('closeModalBtn').addEventListener('click', closeApiKeyModal);
-document.getElementById('saveApiKeyBtn').addEventListener('click', saveApiKey);
-document.getElementById('removeApiKeyBtn')?.addEventListener('click', () => {
-    removeStorageItem('localStorage', API_KEY_STORAGE_KEY);
-    removeStorageItem('sessionStorage', API_KEY_MEMORY_KEY);
-    updateApiKeyStatus(); closeApiKeyModal(); showStatus('Saved API key removed from this browser.');
-});
-document.getElementById('rememberApiKey')?.addEventListener('change', updateApiKeyStorageHint);
-document.getElementById('cancelFilenameBtn').addEventListener('click', closeFilenameModal);
-document.getElementById('confirmFilenameBtn').addEventListener('click', confirmFilenameDownload);
 document.querySelectorAll('[data-map-pick-target]').forEach(btn => {
     btn.addEventListener('click', () => {
         const target = btn.dataset.mapPickTarget;
@@ -2685,87 +2169,7 @@ document.querySelectorAll('[data-map-pick-target]').forEach(btn => {
     });
 });
 
-function exposeAppCompatGlobals() {
-    Object.assign(globalThis, {
-        addStop,
-        assertFileSize,
-        buildRouteName,
-        closeApiKeyModal,
-        confirmMapClickPrompt,
-        decodePolyline,
-        detectImportFormat,
-        enterClickMode,
-        escapeHtml,
-        escapeXml,
-        exitClickMode,
-        fetchElevations,
-        formatDistance,
-        formatDuration,
-        formatFileSize,
-        generateGPX,
-        getApiKey,
-        getModeIconName,
-        getModeIconSvg,
-        getPaletteColorIndex,
-        getReverseGeocodeDisplayName,
-        getRouteColorClass,
-        getValidatedPositionLatLng,
-        getRoute,
-        getStops,
-        handleSingleImportFile,
-        haversineDistance,
-        iconSvg,
-        isValidLatLng,
-        looksLikeCoordinatePair,
-        moveEndpoint,
-        moveStop,
-        openApiKeyModal,
-        openFilenameModal,
-        parseGeoJSON,
-        parseFIT,
-        parseLocation,
-        parseTCX,
-        renderIconPlaceholders,
-        resetColorPool,
-        resolveRouteEndpointLabel,
-        restoreRoute,
-        sanitizeColor,
-        sanitizeFilename,
-        saveApiKey,
-        saveToStorage,
-        selectColor,
-        selectRandomColor,
-        selectTravelMode,
-        setUnit,
-        setupGlobalFileDropGuard,
-        showStatus,
-        truncate,
-        updateInputValidation,
-        useMyLocation,
-        ensureJSZip,
-        ensurePako,
-    });
-
-    Object.defineProperties(globalThis, {
-        distanceUnit: {
-            configurable: true,
-            get: () => distanceUnit,
-            set: value => { distanceUnit = value; },
-        },
-        routes: {
-            configurable: true,
-            get: () => routes,
-            set: value => { if (Array.isArray(value)) routes = value; },
-        },
-        map: {
-            configurable: true,
-            get: () => map,
-        },
-    });
-}
-
 // ============ Initialize ============
-exposeAppCompatGlobals();
 renderIconPlaceholders();
 setupTravelModeToggle();
 selectRandomColor(); // Pick initial random color
@@ -2779,6 +2183,7 @@ updateApiKeyStatus();
 
 
 export {
+    removeRoute,
     addStop,
     assertFileSize,
     buildRouteName,
@@ -2787,14 +2192,10 @@ export {
     decodePolyline,
     detectImportFormat,
     enterClickMode,
-    escapeHtml,
-    escapeXml,
     exitClickMode,
     fetchElevations,
     formatDistance,
-    formatDuration,
     formatFileSize,
-    generateGPX,
     getApiKey,
     getReverseGeocodeDisplayName,
     getRoute,
@@ -2803,7 +2204,6 @@ export {
     getValidatedPositionLatLng,
     getStops,
     handleSingleImportFile,
-    haversineDistance,
     isValidLatLng,
     looksLikeCoordinatePair,
     moveEndpoint,
@@ -2815,7 +2215,6 @@ export {
     resolveRouteEndpointLabel,
     restoreRoute,
     sanitizeColor,
-    sanitizeFilename,
     saveApiKey,
     saveToStorage,
     selectColor,

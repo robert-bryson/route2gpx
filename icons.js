@@ -67,15 +67,6 @@ function renderIconPlaceholders(root = document) {
     });
 }
 
-Object.assign(globalThis, {
-    ICON_PATHS,
-    MODE_ICON_NAMES,
-    iconSvg,
-    getModeIconName,
-    getModeIconSvg,
-    renderIconPlaceholders,
-});
-
 export {
     ICON_PATHS,
     MODE_ICON_NAMES,

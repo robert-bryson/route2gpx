@@ -1,6 +1,6 @@
 # Remaining work
 
-The [current review](docs/reviews/2026-11-02-follow-up-review.md) records completed fixes and verification. The [original review](docs/reviews/2026-11-02-project-review.md) retains historical evidence. Read the [architecture guide](docs/architecture.md) before you change module boundaries.
+The [current review](docs/reviews/2026-11-02-architecture-hardening.md) records completed fixes and validation. Read the [architecture guide](docs/architecture.md) before you change module boundaries. This list contains unfinished work only.
 
 ## Before deployment
 
@@ -11,10 +11,9 @@ The [current review](docs/reviews/2026-11-02-follow-up-review.md) records comple
 
 ## Maintenance and verification
 
-- [ ] Extract route-list and modal coordination from `app.js`. Route layers now belong to `route-map.js`.
-- [ ] Remove compatibility globals after converting the remaining legacy unit-test harnesses to module interfaces.
 - [ ] Add JSDoc domain types and a practical static type check to extracted modules.
-- [ ] Raise coordinator and Fog renderer coverage. The unit report includes subprocess and worker entry files, but it does not collect child-process or browser execution.
+- [ ] Select an XML parser with supported token-size limits and text streaming. saxes buffers complete text tokens, including KML coordinate lists. Preserve strict XML checks and namespace handling when evaluating a replacement.
+- [ ] Measure total import heap use on constrained devices. Desktop XML peak-memory measurements are recorded in the hardening report; input and point limits remain in place.
 - [ ] Measure storage limits and import latency on representative devices before selecting IndexedDB or a different map renderer.
 - [ ] Test geolocation success, denial, and stale callbacks through the browser permission interface.
 - [ ] Test VoiceOver or NVDA through import, reorder, hide, download, and delete. Check single-pointer map panning alternatives.

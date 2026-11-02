@@ -1,4 +1,3 @@
-import { parseTCX, parseGeoJSON } from './gps-import.js';
 import { normalizeTrack, MAX_TRACK_POINTS } from './track-data.js';
 
 // ============ FIT File Parser ============
@@ -191,20 +190,9 @@ function extractGPSPoint(data) {
     return { lat, lng, elevation, time };
 }
 
-Object.assign(globalThis, {
-    parseFIT,
-    isValidLatitudeLongitude,
-    readFITFields,
-    extractGPSPoint,
-    parseTCX,
-    parseGeoJSON,
-});
-
 export {
     parseFIT,
     isValidLatitudeLongitude,
     readFITFields,
     extractGPSPoint,
-    parseTCX,
-    parseGeoJSON,
 };

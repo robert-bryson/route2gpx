@@ -5,8 +5,9 @@
  * and gzip decompression flow from app.js.
  */
 
-import { describe, test, expect, vi, beforeAll } from 'vitest';
-import '../parsers.js';
+import { describe, test, expect } from 'vitest';
+import { parseFIT } from '../parsers.js';
+import { detectImportFormat, parseTCX, parseGeoJSON } from '../gps-import.js';
 
 // ============ FIT Parser ============
 describe('parseFIT', () => {
@@ -84,7 +85,7 @@ describe('parseFIT', () => {
         const alt = (100 + 500) * 5; // altitude 100m: (value/5 - 500) = 100
 
         const buffer = buildFITFile([{ lat, lng, alt }]);
-        const result = globalThis.parseFIT(buffer);
+        const result = parseFIT(buffer);
 
         expect(result.coordinates).toHaveLength(1);
         expect(result.coordinates[0][0]).toBeCloseTo(40.7128, 3);
@@ -99,7 +100,7 @@ describe('parseFIT', () => {
             { lat: degToSemicircles(40.7135), lng: degToSemicircles(-74.004), alt: 3100 },
         ];
         const buffer = buildFITFile(points);
-        const result = globalThis.parseFIT(buffer);
+        const result = parseFIT(buffer);
 
         expect(result.coordinates).toHaveLength(3);
         expect(result.coordinates[0][0]).toBeCloseTo(40.7128, 3);
@@ -112,7 +113,7 @@ describe('parseFIT', () => {
             { lat: 0x7FFFFFFF, lng: 0x7FFFFFFF, alt: 0xFFFF }, // invalid
         ];
         const buffer = buildFITFile(points);
-        const result = globalThis.parseFIT(buffer);
+        const result = parseFIT(buffer);
 
         expect(result.coordinates).toHaveLength(1);
     });
@@ -127,13 +128,13 @@ describe('parseFIT', () => {
         view.setUint8(10, 0x58);
         view.setUint8(11, 0x58);
 
-        expect(() => globalThis.parseFIT(buffer)).toThrow('Not a valid FIT file');
+        expect(() => parseFIT(buffer)).toThrow('Not a valid FIT file');
     });
 
     test('throws a controlled error on truncated FIT buffers', () => {
-        expect(() => globalThis.parseFIT(new ArrayBuffer(4))).toThrow('Invalid FIT header');
+        expect(() => parseFIT(new ArrayBuffer(4))).toThrow('Invalid FIT header');
         const complete = buildFITFile([{ lat: 1, lng: 1, alt: 3000 }]);
-        expect(() => globalThis.parseFIT(complete.slice(0, -5))).toThrow('Truncated FIT');
+        expect(() => parseFIT(complete.slice(0, -5))).toThrow('Truncated FIT');
     });
 
     test.each([false, true])('preserves compressed FIT rollover with a reused timestamp definition: %s', sameDefinition => {
@@ -159,7 +160,7 @@ describe('parseFIT', () => {
         file.set([0x2e, 0x46, 0x49, 0x54], 8);
         let offset = 14;
         for (const part of parts) { file.set(part, offset); offset += part.length; }
-        const result = globalThis.parseFIT(file.buffer);
+        const result = parseFIT(file.buffer);
         expect(result.coordinates).toHaveLength(2);
         expect(result.times).toEqual([1000, 1025].map(time => new Date((time + 631065600) * 1000).toISOString()));
     });
@@ -167,7 +168,7 @@ describe('parseFIT', () => {
     test('throws when no GPS data found', () => {
         // FIT with definition but no data records
         const buffer = buildFITFile([]);
-        expect(() => globalThis.parseFIT(buffer)).toThrow('No GPS data found');
+        expect(() => parseFIT(buffer)).toThrow('No GPS data found');
     });
 });
 
@@ -203,7 +204,7 @@ describe('parseTCX', () => {
         </Activities>
       </TrainingCenterDatabase>`;
 
-        const result = globalThis.parseTCX(xml);
+        const result = parseTCX(xml);
 
         expect(result.coordinates).toHaveLength(2);
         expect(result.coordinates[0][0]).toBeCloseTo(40.7128, 4);
@@ -230,7 +231,7 @@ describe('parseTCX', () => {
         </Activities>
       </TrainingCenterDatabase>`;
 
-        const result = globalThis.parseTCX(xml);
+        const result = parseTCX(xml);
         expect(result.name).toBe('Morning Run');
     });
 
@@ -251,7 +252,7 @@ describe('parseTCX', () => {
         </Track></Lap></Activity></Activities>
       </TrainingCenterDatabase>`;
 
-        const result = globalThis.parseTCX(xml);
+        const result = parseTCX(xml);
         expect(result.coordinates).toHaveLength(1);
     });
 
@@ -270,18 +271,18 @@ describe('parseTCX', () => {
                 </Track></Lap></Activity></Activities>
             </TrainingCenterDatabase>`;
 
-                const result = globalThis.parseTCX(xml);
+                const result = parseTCX(xml);
                 expect(result.coordinates).toEqual([[40.7, -74.0]]);
                 expect(result.elevations).toEqual([null]);
         });
 
     test('throws on empty TCX', () => {
         const xml = `<?xml version="1.0"?><TrainingCenterDatabase></TrainingCenterDatabase>`;
-        expect(() => globalThis.parseTCX(xml)).toThrow('No valid trackpoints');
+        expect(() => parseTCX(xml)).toThrow('No valid trackpoints');
     });
 
     test('throws on invalid XML', () => {
-        expect(() => globalThis.parseTCX('not xml at all <<<<')).toThrow('Invalid TCX');
+        expect(() => parseTCX('not xml at all <<<<')).toThrow('Invalid TCX');
     });
 });
 
@@ -297,7 +298,7 @@ describe('parseGeoJSON', () => {
             }
         });
 
-        const result = globalThis.parseGeoJSON(json);
+        const result = parseGeoJSON(json);
 
         expect(result.coordinates).toHaveLength(2);
         expect(result.coordinates[0]).toEqual([40.7128, -74.006]); // [lat, lng]
@@ -322,7 +323,7 @@ describe('parseGeoJSON', () => {
             ]
         });
 
-        const result = globalThis.parseGeoJSON(json);
+        const result = parseGeoJSON(json);
         expect(result.coordinates).toHaveLength(2);
         expect(result.name).toBe('Route 1');
     });
@@ -334,7 +335,7 @@ describe('parseGeoJSON', () => {
             geometry: { type: 'Point', coordinates: [-74.006, 40.7128] }
         });
 
-        expect(() => globalThis.parseGeoJSON(json)).toThrow('not route tracks');
+        expect(() => parseGeoJSON(json)).toThrow('not route tracks');
     });
 
     test('parses bare geometry object', () => {
@@ -343,7 +344,7 @@ describe('parseGeoJSON', () => {
             coordinates: [[-74.0, 40.7], [-74.1, 40.8]]
         });
 
-        const result = globalThis.parseGeoJSON(json);
+        const result = parseGeoJSON(json);
         expect(result.coordinates).toHaveLength(2);
     });
 
@@ -357,7 +358,7 @@ describe('parseGeoJSON', () => {
             }
         });
 
-        const result = globalThis.parseGeoJSON(json);
+        const result = parseGeoJSON(json);
         expect(result.elevations).toEqual([null, null]);
     });
 
@@ -371,7 +372,7 @@ describe('parseGeoJSON', () => {
             }
         });
 
-        const result = globalThis.parseGeoJSON(json);
+        const result = parseGeoJSON(json);
         expect(result.coordinates).toEqual([[40.7, -74.0]]);
         expect(result.elevations).toEqual([null]);
     });
@@ -381,161 +382,70 @@ describe('parseGeoJSON', () => {
             type: 'FeatureCollection',
             features: []
         });
-        expect(() => globalThis.parseGeoJSON(json)).toThrow('No valid coordinates');
+        expect(() => parseGeoJSON(json)).toThrow('No valid coordinates');
     });
 
     test('throws on invalid JSON', () => {
-        expect(() => globalThis.parseGeoJSON('not json')).toThrow();
+        expect(() => parseGeoJSON('not json')).toThrow();
     });
 });
 
 // ============ Format Detection (from app.js) ============
 describe('detectImportFormat', () => {
-    // Load app.js minimally to get detectImportFormat
-    beforeAll(async () => {
-        // Mock all the DOM and Leaflet dependencies
-        const store = {};
-        Object.defineProperty(globalThis, 'localStorage', {
-            value: {
-                getItem: vi.fn((k) => store[k] ?? null),
-                setItem: vi.fn((k, v) => { store[k] = String(v); }),
-                removeItem: vi.fn((k) => { delete store[k]; }),
-                clear: vi.fn(() => {
-                    Object.keys(store).forEach((key) => delete store[key]);
-                }),
-            },
-            configurable: true,
-        });
-
-        if (!globalThis.L) {
-            const noop = vi.fn().mockReturnThis();
-            globalThis.L = {
-                map: vi.fn(() => ({ fitBounds: noop, closePopup: noop, removeLayer: noop, on: noop, hasLayer: vi.fn() })),
-                tileLayer: vi.fn(() => ({ addTo: noop })),
-                polyline: vi.fn(() => ({
-                    addTo: noop, bindPopup: noop, bindTooltip: noop, on: noop,
-                    getBounds: vi.fn(() => [[0, 0], [1, 1]]), setStyle: noop,
-                })),
-                marker: vi.fn(() => ({ addTo: noop, bindTooltip: noop, on: noop, _icon: null })),
-                divIcon: vi.fn(() => ({})),
-                popup: vi.fn(() => ({ setContent: vi.fn().mockReturnThis() })),
-                DomEvent: { stopPropagation: vi.fn(), preventDefault: vi.fn() },
-                GridLayer: { extend: vi.fn(() => vi.fn()) },
-                latLngBounds: vi.fn(),
-            };
-        }
-
-        if (!globalThis.pako) {
-            globalThis.pako = { inflate: vi.fn(() => new Uint8Array(0)) };
-        }
-
-        if (!globalThis.JSZip) {
-            globalThis.JSZip = vi.fn();
-            globalThis.JSZip.loadAsync = vi.fn(() => Promise.resolve({ files: {} }));
-        }
-
-        // Build DOM elements that app.js needs
-        const ids = [
-            'map', 'origin', 'destination', 'routesList', 'addStopBtn', 'reverseRouteBtn',
-            'colorSwatch', 'unitKm', 'unitMi', 'getRouteBtn', 'downloadAllBtn', 'clearAllBtn',
-            'apiKeyMapBtn', 'clickModeBtn', 'locateMeBtn', 'closeModalBtn', 'saveApiKeyBtn',
-            'colorOptions', 'routeColor', 'colorDropdown', 'stopsContainer',
-            'apiKeyModal', 'apiKeyInput', 'status', 'travelMode',
-            'filenameModal', 'filenameInput', 'filenamePreview', 'cancelFilenameBtn', 'confirmFilenameBtn',
-            'importDropZone', 'importFileInput',
-            'fogDropZone', 'fogFileInput', 'fogBadge', 'fogRemoveBtn', 'fogVisibilityToggle',
-            'helpContent', 'mapModeIndicator', 'clickModeTarget',
-        ];
-
-        for (const id of ids) {
-            if (document.getElementById(id)) continue;
-            const tag = ['origin', 'destination', 'apiKeyInput', 'routeColor', 'filenameInput', 'importFileInput', 'fogFileInput']
-                .includes(id) ? 'input' : id === 'travelMode' ? 'select' : 'div';
-            const el = document.createElement(tag);
-            el.id = id;
-            if (tag === 'input' && (id === 'importFileInput' || id === 'fogFileInput')) el.type = 'file';
-            if (tag === 'select') {
-                const opt = document.createElement('option');
-                opt.value = 'DRIVE';
-                el.appendChild(opt);
-            }
-            document.body.appendChild(el);
-        }
-
-        if (!document.querySelector('.help-toggle')) {
-            const helpBtn = document.createElement('button');
-            helpBtn.classList.add('help-toggle');
-            document.body.appendChild(helpBtn);
-        }
-
-        if (!document.querySelector('[data-gps-field]')) {
-            ['origin', 'destination'].forEach(field => {
-                const btn = document.createElement('button');
-                btn.setAttribute('data-gps-field', field);
-                document.body.appendChild(btn);
-            });
-        }
-
-        // Load app.js if not already loaded
-        if (!globalThis.detectImportFormat) {
-            await import('../app.js?parsers-test');
-        }
-    });
-
     test('detects .fit files', () => {
-        const result = globalThis.detectImportFormat('activity.fit');
+        const result = detectImportFormat('activity.fit');
         expect(result).toEqual({ format: 'fit', gzipped: false });
     });
 
     test('detects .fit.gz files', () => {
-        const result = globalThis.detectImportFormat('5922865120.fit.gz');
+        const result = detectImportFormat('5922865120.fit.gz');
         expect(result).toEqual({ format: 'fit', gzipped: true });
     });
 
     test('detects .tcx files', () => {
-        const result = globalThis.detectImportFormat('run.tcx');
+        const result = detectImportFormat('run.tcx');
         expect(result).toEqual({ format: 'tcx', gzipped: false });
     });
 
     test('detects .tcx.gz files', () => {
-        const result = globalThis.detectImportFormat('3503559100.tcx.gz');
+        const result = detectImportFormat('3503559100.tcx.gz');
         expect(result).toEqual({ format: 'tcx', gzipped: true });
     });
 
     test('detects .gpx files', () => {
-        const result = globalThis.detectImportFormat('route.gpx');
+        const result = detectImportFormat('route.gpx');
         expect(result).toEqual({ format: 'gpx', gzipped: false });
     });
 
     test('detects .gpx.gz files', () => {
-        const result = globalThis.detectImportFormat('route.gpx.gz');
+        const result = detectImportFormat('route.gpx.gz');
         expect(result).toEqual({ format: 'gpx', gzipped: true });
     });
 
     test('detects .kml files', () => {
-        const result = globalThis.detectImportFormat('map.kml');
+        const result = detectImportFormat('map.kml');
         expect(result).toEqual({ format: 'kml', gzipped: false });
     });
 
     test('detects .geojson files', () => {
-        const result = globalThis.detectImportFormat('track.geojson');
+        const result = detectImportFormat('track.geojson');
         expect(result).toEqual({ format: 'geojson', gzipped: false });
     });
 
     test('detects .json files', () => {
-        const result = globalThis.detectImportFormat('data.json');
+        const result = detectImportFormat('data.json');
         expect(result).toEqual({ format: 'geojson', gzipped: false });
     });
 
     test('returns null for unsupported formats', () => {
-        expect(globalThis.detectImportFormat('photo.jpg')).toBeNull();
-        expect(globalThis.detectImportFormat('document.pdf')).toBeNull();
-        expect(globalThis.detectImportFormat('data.csv')).toBeNull();
+        expect(detectImportFormat('photo.jpg')).toBeNull();
+        expect(detectImportFormat('document.pdf')).toBeNull();
+        expect(detectImportFormat('data.csv')).toBeNull();
     });
 
     test('case insensitive detection', () => {
-        expect(globalThis.detectImportFormat('Activity.FIT')).toEqual({ format: 'fit', gzipped: false });
-        expect(globalThis.detectImportFormat('Route.GPX.GZ')).toEqual({ format: 'gpx', gzipped: true });
-        expect(globalThis.detectImportFormat('Track.TCX')).toEqual({ format: 'tcx', gzipped: false });
+        expect(detectImportFormat('Activity.FIT')).toEqual({ format: 'fit', gzipped: false });
+        expect(detectImportFormat('Route.GPX.GZ')).toEqual({ format: 'gpx', gzipped: true });
+        expect(detectImportFormat('Track.TCX')).toEqual({ format: 'tcx', gzipped: false });
     });
 });

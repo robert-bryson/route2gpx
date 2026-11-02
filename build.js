@@ -37,9 +37,11 @@ const workerSource = worker.outputFiles[0].contents;
 const workerName = `import-worker.${crypto.createHash('sha256').update(workerSource).digest('hex').slice(0, 12)}.js`;
 fs.writeFileSync(path.join(dist, workerName), workerSource);
 fs.cpSync(path.join(path.dirname(require.resolve('leaflet/dist/leaflet.css')), 'images'), path.join(vendorDir, 'images'), { recursive: true });
-for (const [name, license] of [['leaflet', 'LICENSE'], ['jszip', 'LICENSE.markdown'], ['pako', 'LICENSE']]) {
+for (const [name, license] of [['leaflet', 'LICENSE'], ['jszip', 'LICENSE.markdown'], ['pako', 'LICENSE'], ['xmlchars', 'LICENSE']]) {
     fs.copyFileSync(path.join(path.dirname(require.resolve(`${name}/package.json`)), license), path.join(vendorDir, `${name}-LICENSE.txt`));
 }
+// The saxes 6.0.0 npm tarball omits its upstream license file.
+fs.copyFileSync(path.join(__dirname, 'licenses/saxes.txt'), path.join(vendorDir, 'saxes-LICENSE.txt'));
 
 // Bundle & minify JS from the ES module entry point.
 const bundle = esbuild.buildSync({

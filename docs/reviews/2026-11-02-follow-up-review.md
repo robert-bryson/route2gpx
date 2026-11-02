@@ -1,5 +1,7 @@
 # Follow-up review: November 2, 2026
 
+This is a historical report. Counts and implementation details refer to its reviewed revision. Read the [current review](2026-11-02-architecture-hardening.md) for later fixes and verification.
+
 ## Scope and assessment
 
 The baseline is `f63be97904aa2ce0c1499478daa59f9b706d8420`. The review covers commits `25009f9` and `9a8e9d4`, plus the pending Amplify correction.
@@ -64,6 +66,8 @@ CI runs coverage on Node 22.22.2, 24.15.0, and 26.12.0. Minimums are 58% stateme
 Dependabot updates Vitest and its coverage packages together. Their versions must remain compatible.
 
 ## Remaining weaknesses
+
+The coordinator extraction, compatibility globals, renderer coverage, and XML DOM concerns below describe this review's baseline. They are addressed in the subsequent [architecture hardening report](2026-11-02-architecture-hardening.md), which records the new verification and remaining limits.
 
 - **The coordinator is still too large.** `app.js` owns planner state, modal state, geolocation, route-list updates, imports, and downloads. Extract route-list and modal coordination through small, tested interfaces. Avoid a broad rewrite.
 - **The compatibility globals weaken module boundaries.** Legacy tests depend on a mutable global surface. Convert those tests to explicit module interfaces before removing the globals.

@@ -12,6 +12,7 @@ export function readInWorker(buffer, { signal, ...options }) {
         worker.onerror = () => { cleanup(); reject(new Error('The import worker could not start. Reload and retry.')); };
         if (signal?.aborted) { cancel(); return; }
         signal?.addEventListener('abort', cancel, { once: true });
-        worker.postMessage({ buffer, ...options }, [buffer]);
+        try { worker.postMessage({ buffer, ...options }, [buffer]); }
+        catch (error) { cleanup(); reject(error); }
     });
 }

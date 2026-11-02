@@ -26,7 +26,9 @@ The app accepts GPX, KML, FIT, TCX, GeoJSON, and their gzip-compressed forms. Fo
 - Import results retain warnings for invalid points, short tracks, unsupported geometry, and failed files. Cancelling an import retains completed tracks.
 - Each file can contain up to one million points across all tracks. Invalid points also count toward this limit.
 - Import at most 100 files and 250 MB per batch. The limit is 50 MB per file and 120 MB after gzip expansion.
-- Decompression checks the output size while it runs. Large FIT/GeoJSON files and gzip files use a cancellable worker when available.
+- Decompression checks the output size while it runs. GPS files larger than 256 KiB and all gzip files use a cancellable worker when available. XML parsing finishes inside the worker.
+- GPX, KML, and TCX parse without an XML DOM. XML imports have nesting, field-length, and track-count limits. The parser can buffer a complete text field, including a KML coordinate list. These limits do not cap total memory use. Document types and custom entities are unsupported.
+- XML fields must use the track document's namespace and supported parent elements. Foreign extensions cannot replace point data. KML tracks use the standard Google extension namespace.
 - GPX exports preserve segment breaks, recorded times, and known elevations. Missing values are omitted. Full route coordinates remain available for export.
 - Invalid calendar dates are omitted. Zoned times convert to UTC and retain fractional-second precision. Times without a zone keep their original wall time.
 - Export replaces characters that XML cannot represent with the replacement character `�`. Other Unicode text remains unchanged.
@@ -49,6 +51,8 @@ Create a dedicated Google API key. Restrict it to the deployed website and neces
 
 By default, keys use storage for the current browser tab. You can select persistent browser storage. If that write fails, the app attempts tab storage. Verify authenticated requests and key restrictions on the deployed HTTPS origin.
 
+Use **Remove key** to delete a key. If removal or a storage change fails, the dialog stays open and shows an error. Export your routes before you clear this website's browser data to remove a retained key.
+
 Before deployment, confirm that your routing agreement permits the selected map, storage period, and GPX export. The app records route source and creation time but does not enforce a retention period. See the [provider decision in the review](docs/reviews/2026-11-02-project-review.md#provider-fit-comes-before-a-routing-fallback).
 
 ## Develop the web app
@@ -69,6 +73,8 @@ npm run dev
 
 Run `npm run test:coverage` for JavaScript coverage. Open `coverage/index.html` for the report. CI enforces minimum coverage levels in `vitest.config.mjs`. The report includes all root JavaScript files. It does not collect coverage from browser tests or child processes.
 
+Run `node scripts/benchmark-xml.cjs 100000` to compare XML parsing time and peak process memory against the DOM implementation at `f4c77eb`. Both samples run in separate processes with the same jsdom startup cost. These measurements do not establish mobile-device memory limits.
+
 The build follows ES module imports. It writes hashed JavaScript, CSS, and an import worker to `dist/`. Leaflet, JSZip, and Pako use versions pinned in the lockfile and are served locally with integrity hashes and licenses. Startup does not require a script CDN.
 
 `customHttp.yml` defines the headers for Amplify, Terraform, local preview, and the HTML CSP. Production HTML revalidates. Fingerprinted assets use immutable caching. Deploy again to apply header changes, then check the actual responses. Local preview revalidates all files.
@@ -85,7 +91,7 @@ Tests use real Leaflet, local fixtures, generated downloads, and intercepted pro
 
 CI checks Node 22.22.2, 24.15.0, and 26.12.0. Each job runs lint, coverage, the build, and browser tests. Amplify runs lint and unit tests before it packages the app.
 
-The [architecture guide](docs/architecture.md) describes module boundaries, storage commits, and validation. The [current review](docs/reviews/2026-11-02-follow-up-review.md) records defects, fixes, and verification limits. [TODO.md](TODO.md) lists remaining work.
+The [architecture guide](docs/architecture.md) describes module boundaries, storage commits, and validation. The [hardening report](docs/reviews/2026-11-02-architecture-hardening.md) records the latest changes, memory measurements, and verification limits. The [follow-up review](docs/reviews/2026-11-02-follow-up-review.md) retains earlier findings. [TODO.md](TODO.md) lists remaining work.
 
 ### Amplify build environment
 
@@ -137,7 +143,7 @@ Calculate a route:
 poetry run python route2gpx.py "Seattle, WA" "Portland, OR" DRIVE
 ```
 
-Specify one of these modes: `DRIVE`, `TRANSIT`, `BICYCLE`, or `WALK`. The default output for this example is `drive-route_Seattle_WA-Portland_OR.gpx`.
+Specify one of these modes: `DRIVE`, `TRANSIT`, `BICYCLE`, or `WALK`. The default output for this example is `drive-route_Seattle_ WA-Portland_ OR.gpx`. Filename conversion preserves spaces.
 
 Use `--output custom.gpx` to choose a path. Existing files are preserved unless you add `--force`. Output omits invented elevation and point times by default. Add `--timestamps` to synthesize times from route duration. `--start-time 2026-11-02T10:00:00-08:00` sets an explicit synthesis start; a start without a time-zone offset uses UTC.
 

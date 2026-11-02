@@ -5,14 +5,24 @@
 | Module | Responsibility |
 | --- | --- |
 | `track-data.js` | Validate aligned coordinates, elevations, and times. Preserve segment breaks and calculate distance within segments. |
-| `gps-import.js`, `parsers.js` | Parse XML, GeoJSON, and FIT into tracks. Report skipped content. |
+| `gps-import.js`, `xml-import.js`, `parsers.js` | Detect formats and parse XML, GeoJSON, and FIT into tracks. Report skipped content. |
 | `compression.js`, `import-client.js`, `import-worker.js` | Bound expanded data and move supported large imports to a cancellable worker. |
 | `gpx.js` | Export validated tracks with explicit timestamp policy and unique archive names. |
 | `google-routes.js`, `network.js` | Validate requests, preserve useful errors, enforce timeouts, and support cancellation. |
 | `elevation.js` | Share request spacing, sample by distance, retain partial results, and interpolate within segments. |
 | `route-storage.js` | Read legacy records and commit geometry and metadata consistently. |
 | `route-map.js` | Own route layers by ID, marker labels, visibility, styling, hover, popup placement, and cleanup. |
+| `route-list.js` | Own route rows, row focus recovery, delegated row interaction, hover scrolling, and popup presentation. |
+| `app-dialogs.js` | Own dialog state, keyboard handling, focus recovery, API-key storage, rename input, and download confirmation. |
 | `fog.js` | Parse and render the separate Fog of World overlay. Receive app services through setup. |
+
+`createRouteList` receives formatting and action callbacks. It exposes `render`, `highlight`, and `popup`. The coordinator changes route data and map layers in response to those callbacks. Rows do not retain their own route collection.
+
+`createAppDialogs` receives a route lookup, a rename callback, a download callback, and status reporting. It looks up current route data when an action is confirmed. It owns pending rename and download state. Dismissal restores focus to the invoking control. If a row was replaced or a map popup was closed, it finds the route's current action. If the route was deleted, it uses the planner button. `destroy` dismisses any open dialog and releases its listeners.
+
+API-key writes and removals must report storage failures. A successful write to one store does not establish that the old key was removed from the other store. Keep the dialog open with an inline error if cleanup fails.
+
+Application functions and mutable state are not installed on `globalThis`. Tests import the responsible module and use DOM events for user actions. Leaflet, JSZip, and Pako still use their self-hosted vendor globals. Fog requires an explicit setup context; it does not fall back to application globals.
 
 ## Track rules
 
@@ -20,7 +30,17 @@ A track has `coordinates` as latitude/longitude pairs. The optional `elevations`
 
 Normalization removes invalid points and their associated fields together. It starts a new segment after a removed point. Imports report invalid points, short tracks, and unsupported geometry. The import summary retains those warnings after the success message changes.
 
-Each XML or GeoJSON parser owns one raw point budget for the complete file. Pass this budget through every `trackFromSegments` call. Invalid points consume the same budget as valid points. Lazy point iterators stop extraction when the budget is exhausted.
+Each XML or GeoJSON parser owns one raw point budget for the complete file. Invalid points consume the same budget as valid points. GeoJSON passes this budget through every `trackFromSegments` call. XML counts GPX and TCX records on opening their point tags. KML counts tuples when the parser delivers a complete coordinate field. A point-limit failure stops further track extraction.
+
+XML uses the saxes parser without a DOM. It accepts strings or UTF-8 bytes and feeds 64 KiB chunks. Byte input is decoded in chunks without a complete decoded-string copy. Names, elevations, times, and segment breaks retain the same track representation as other imports. KML coordinate lists are scanned without a tuple-array copy. However, saxes buffers each text token before it emits an event. A large coordinate list or scalar field can therefore be read in full before its limit is checked. Chunked input does not bound token memory. gx times remain paired with raw point indices even when an invalid point is skipped or times follow coordinates.
+
+Recognize XML fields by namespace and parent element. A supported document root defines the base namespace. Namespace-free files remain supported. KML `Track`, `MultiTrack`, and `coord` use `http://www.google.com/kml/ext/2.2`, with any prefix. Unknown extension subtrees do not supply tracks, positions, elevations, or times. This is field selection, not full XML schema validation.
+
+XML permits at most 10,000 track containers and 64 open elements. Captured scalar fields have a 65,536 UTF-16-code-unit limit. KML coordinate lists use the file point budget, and gx times have their own file-wide one-million-entry limit. Document types are rejected. Predefined and numeric XML entities remain supported. Malformed XML rejects the complete file rather than returning partial tracks.
+
+These limits do not bound total heap usage. The source bytes, SAX token buffers, normalized tracks, worker result cloning, and map layers still consume memory. Keep file-size limits in place. `scripts/benchmark-xml.cjs` compares peak process RSS with the former DOM parser; constrained-device and browser heap measurements remain separate work.
+
+Use `parseImportBuffer` for parser selection and byte decoding in both worker and main-thread paths. If a worker input transfer throws, release the worker, abort listener, and deadline before rejecting the import.
 
 Validate the calendar date and time fields before converting a timestamp. Convert zoned times to UTC. Preserve digits beyond milliseconds. Preserve an unzoned wall time without assigning the device timezone. Omit invalid timestamps. Replace code points forbidden by XML 1.0 before writing export text.
 
@@ -49,6 +69,8 @@ The app displays persistent unsaved state independently of transient task messag
 
 ## Background work
 
+Every supported GPS format can finish parsing in the import worker. Use the worker for gzip files and files larger than 256 KiB when it is available. The worker returns parsed tracks, not XML bytes for a second main-thread parse. The main-thread fallback uses the same parsers and limits. Cancellation terminates the worker; completed files in the batch remain installed.
+
 One elevation client owns the page queue. Cancelling queued work releases its caller without starting a cancelled request. Cancelling active enrichment returns completed batches. The coordinator installs and saves those values if the route still exists. Removed routes cannot receive stale results.
 
 Preserve existing elevations. Add SRTM provenance only when provider or cached samples were added. Retain the mixed-source flag when recorded and provider elevations are combined. A failed lookup must not relabel recorded data as SRTM.
@@ -69,6 +91,10 @@ Check the budget before allocating each bitmap. Propagate `DecompressionLimitErr
 
 Run `npm run check` and browser tests against a fresh build. Run `npm run test:coverage` to measure unit coverage. CI checks the declared Node release lines and enforces the coverage minimums.
 
-Browser tests use real Leaflet, intercepted provider responses, and generated files. Unit tests cover data integrity, memory limits, worker lifecycle, failed storage commits, cancellation, map cleanup, and text escaping. Coverage includes all root JavaScript files. Child-process build checks and browser tests do not contribute to the unit coverage report.
+Browser tests use real Leaflet, intercepted provider responses, and generated files. Unit tests cover data integrity, memory limits, worker lifecycle, failed storage commits, cancellation, map cleanup, text escaping, route-list focus recovery, dialog behavior, and Fog drawing across all three zoom regimes. A low-zoom Fog block clears an output pixel only if its bitmap contains a visited bit.
+
+Coverage includes all root JavaScript files. Global minimums are 80% statements, 71% branches, 84% functions, and 83% lines. The coordinator, dialogs, route list, Fog, and XML modules also have individual minimums. Child-process build checks and browser tests do not contribute to the unit coverage report.
+
+The build includes notices for bundled XML dependencies under `dist/vendor/`. `licenses/saxes.txt` retains the [upstream saxes 6.0.0 notice](https://raw.githubusercontent.com/lddubeau/saxes/v6.0.0/LICENSE), which is absent from that npm package. The xmlchars notice comes from its installed package.
 
 The automated suite does not establish deployed provider permissions, production response headers, physical-keyboard behavior, screen-reader conformance, or field performance. Track those checks in `TODO.md`.

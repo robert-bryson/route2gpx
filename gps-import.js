@@ -1,73 +1,24 @@
-import { numericValue, trackFromSegments, summarizeTracks } from './track-data.js';
+import { trackFromSegments, summarizeTracks } from './track-data.js';
+import { parseFIT } from './parsers.js';
+import { parseXmlTracks } from './xml-import.js';
 
-const elements = (node, name) => Array.from(node.getElementsByTagNameNS('*', name));
-const childText = (node, name) => Array.from(node.children).find(child => child.localName === name)?.textContent?.trim() || null;
-const text = (node, name) => elements(node, name)[0]?.textContent ?? null;
-
-// Parse one point at a time so the shared file budget stops extraction early.
+// GeoJSON coordinates are already materialized by JSON.parse.
 function* mapPoints(values, parsePoint) {
     for (const value of values) yield parsePoint(value);
 }
 
-function xmlDocument(source, format) {
-    const doc = new DOMParser().parseFromString(source, 'application/xml');
-    if (elements(doc, 'parsererror').length) throw new Error(`Invalid ${format} file`);
-    return doc;
-}
+export const parseGPX = source => parseXmlTracks(source, 'gpx');
+export const parseKML = source => parseXmlTracks(source, 'kml');
+export const parseTCX = source => parseXmlTracks(source, 'tcx');
+const IMPORT_PARSERS = new Map([
+    ['fit', parseFIT], ['geojson', parseGeoJSON], ['gpx', parseGPX], ['kml', parseKML], ['tcx', parseTCX],
+]);
 
-function gpxPoint(point) {
-    return { coordinate: [numericValue(point.getAttribute('lat')), numericValue(point.getAttribute('lon'))], elevation: numericValue(text(point, 'ele')), time: text(point, 'time') };
-}
-
-export function parseGPX(source) {
-    const doc = xmlDocument(source, 'GPX');
-    const budget = { points: 0 };
-    const fallbackName = elements(doc, 'metadata').map(node => childText(node, 'name')).find(Boolean) || null;
-    const tracks = elements(doc, 'trk').map(track => trackFromSegments(
-        elements(track, 'trkseg').map(segment => mapPoints(elements(segment, 'trkpt'), gpxPoint)), childText(track, 'name') || fallbackName, budget
-    ));
-    for (const route of elements(doc, 'rte')) tracks.push(trackFromSegments([mapPoints(elements(route, 'rtept'), gpxPoint)], childText(route, 'name') || fallbackName, budget));
-    return summarizeTracks(tracks, 'No valid track or route points found in GPX file');
-}
-
-export function parseKML(source) {
-    const doc = xmlDocument(source, 'KML');
-    const budget = { points: 0 };
-    const placemarks = elements(doc, 'Placemark');
-    const containers = placemarks.length ? placemarks : [doc.documentElement];
-    const tracks = containers.map(container => {
-        const segments = elements(container, 'LineString').map(line => mapPoints((text(line, 'coordinates') || '').trim().split(/\s+/), value => {
-            const [lng, lat, elevation] = value.split(',');
-            return { coordinate: [numericValue(lat), numericValue(lng)], elevation: numericValue(elevation) };
-        }));
-        // Google Earth extensions use space-delimited lon/lat/alt coordinates.
-        for (const track of elements(container, 'Track')) {
-            const times = elements(track, 'when');
-            let index = 0;
-            segments.push(mapPoints(elements(track, 'coord'), point => {
-                const [lng, lat, elevation] = point.textContent.trim().split(/\s+/);
-                return { coordinate: [numericValue(lat), numericValue(lng)], elevation: numericValue(elevation), time: times[index++]?.textContent };
-            }));
-        }
-        return trackFromSegments(segments, childText(container, 'name'), budget);
-    });
-    return summarizeTracks(tracks, 'No valid line tracks found in KML file (points and polygons are not route tracks)', {
-        unsupportedGeometries: elements(doc, 'Point').length + elements(doc, 'Polygon').length,
-    });
-}
-
-export function parseTCX(source) {
-    const doc = xmlDocument(source, 'TCX');
-    const budget = { points: 0 };
-    const activities = [...elements(doc, 'Activity'), ...elements(doc, 'Course')];
-    const tracks = (activities.length ? activities : [doc.documentElement]).map(activity => {
-        const segments = elements(activity, 'Track').map(segment => mapPoints(elements(segment, 'Trackpoint'), point => ({
-            coordinate: [numericValue(text(point, 'LatitudeDegrees')), numericValue(text(point, 'LongitudeDegrees'))],
-            elevation: numericValue(text(point, 'AltitudeMeters')), time: text(point, 'Time')
-        })));
-        return trackFromSegments(segments, childText(activity, 'Notes') || childText(activity, 'Name') || childText(activity, 'Id'), budget);
-    });
-    return summarizeTracks(tracks, 'No valid trackpoints found in TCX file');
+/** Use the same byte decoding and parser selection in workers and the fallback. */
+export function parseImportBuffer(buffer, format) {
+    const parser = IMPORT_PARSERS.get(format);
+    if (!parser) throw new Error('Unsupported file type');
+    return parser(format === 'geojson' ? new TextDecoder().decode(buffer) : buffer);
 }
 
 export function parseGeoJSON(source) {
@@ -97,4 +48,19 @@ export function parseGeoJSON(source) {
     }
     geometry(input, typeof input?.name === 'string' ? input.name : null);
     return summarizeTracks(tracks, 'No valid coordinates in GeoJSON line tracks (points and polygons are not route tracks)', { unsupportedGeometries });
+}
+
+export function detectImportFormat(filename) {
+    const name = filename.toLowerCase();
+    if (/\.(geojson|json)\.gz$/.test(name)) return { format: 'geojson', gzipped: true };
+    if (name.endsWith('.fit.gz')) return { format: 'fit', gzipped: true };
+    if (name.endsWith('.tcx.gz')) return { format: 'tcx', gzipped: true };
+    if (name.endsWith('.gpx.gz')) return { format: 'gpx', gzipped: true };
+    if (name.endsWith('.kml.gz')) return { format: 'kml', gzipped: true };
+    if (name.endsWith('.fit')) return { format: 'fit', gzipped: false };
+    if (name.endsWith('.tcx')) return { format: 'tcx', gzipped: false };
+    if (name.endsWith('.gpx')) return { format: 'gpx', gzipped: false };
+    if (name.endsWith('.kml')) return { format: 'kml', gzipped: false };
+    if (name.endsWith('.geojson') || name.endsWith('.json')) return { format: 'geojson', gzipped: false };
+    return null;
 }

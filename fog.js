@@ -1,7 +1,10 @@
 import { DecompressionLimitError, inflateBounded, readZipEntryBounded } from './compression.js';
 
 let fogDependencies = null;
-const dependencies = () => fogDependencies || globalThis;
+const dependencies = () => {
+    if (!fogDependencies) throw new Error('Fog controls must be set up before use.');
+    return fogDependencies;
+};
 
 // ============ Fog of World Data Format ============
 // Ported from https://github.com/CaviarChen/fog-machine (MIT License)
@@ -296,6 +299,7 @@ function renderFowTileOnCanvas(ctx, fowTile, tilePixelSize, dx, dy) {
     if (blockPixelSize < 1) {
         // Sub-pixel blocks: each block with data clears one output pixel
         for (const block of fowTile.blocks.values()) {
+            if (!block.bitmap.some(Boolean)) continue;
             const bx = Math.floor(block.x * blockPixelSize);
             const by = Math.floor(block.y * blockPixelSize);
             ctx.clearRect(dx + bx, dy + by, 1, 1);
@@ -431,7 +435,7 @@ function isFogOfWorldZip(file) {
 
 // ============ Setup Fog of World UI ============
 function setupFogOfWorld(context) {
-    if (context) fogDependencies = context;
+    fogDependencies = context;
     const { setupGlobalFileDropGuard, showStatus } = dependencies();
     const dropZone = document.getElementById('fogDropZone');
     const fileInput = document.getElementById('fogFileInput');
@@ -479,23 +483,6 @@ function setupFogOfWorld(context) {
 
     updateFogControls();
 }
-
-Object.assign(globalThis, {
-    FowBlock,
-    FowTile,
-    FogMap,
-    parseFogOfWorldZip,
-    createFogCanvasLayer,
-    renderFowTileOnCanvas,
-    renderBlockOnCanvas,
-    addFogOfWorldLayer,
-    removeFogOfWorldLayer,
-    toggleFogVisibility,
-    updateFogControls,
-    handleFogOfWorldFile,
-    isFogOfWorldZip,
-    setupFogOfWorld,
-});
 
 export {
     FowBlock,
