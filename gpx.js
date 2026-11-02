@@ -1,7 +1,10 @@
 import { normalizeTrack, numericValue, haversineDistance } from './track-data.js';
 
 export function escapeXml(text) {
-    return String(text ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[char]));
+    return String(text ?? '')
+        // eslint-disable-next-line no-control-regex -- Replace code points forbidden by XML 1.0.
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/gu, '\uFFFD')
+        .replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[char]));
 }
 
 export function sanitizeFilename(value) {

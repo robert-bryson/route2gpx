@@ -3,6 +3,9 @@ frontend:
   phases:
     preBuild:
       commands:
+        # Node.js 25+ Linux binaries need libatomic before Node or npm can run.
+        - sudo dnf install -y libatomic
+        - node --version
         - npm ci
     build:
       commands:

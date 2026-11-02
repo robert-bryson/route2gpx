@@ -1,18 +1,20 @@
 # Remaining work
 
-Completed fixes and verification are recorded in the [project review](docs/reviews/2026-11-02-project-review.md). See the [architecture guide](docs/architecture.md) before changing module boundaries.
+The [current review](docs/reviews/2026-11-02-follow-up-review.md) records completed fixes and verification. The [original review](docs/reviews/2026-11-02-project-review.md) retains historical evidence. Read the [architecture guide](docs/architecture.md) before you change module boundaries.
 
 ## Before deployment
 
 - [ ] Confirm routing-provider agreement fit for the CARTO map, route storage, and GPX export. Define retention by data source.
 - [ ] Verify authenticated Routes and Geocoding calls and key restrictions on the deployed HTTPS origin.
 - [ ] Check deployed CSP and cache headers after deployment. Local build tests do not verify hosting configuration.
+- [ ] Confirm that Amplify installs `libatomic` and completes a build with Node 26.12.0. The local Docker daemon was unavailable for the AL2023 check.
 
 ## Maintenance and verification
 
 - [ ] Extract route-list and modal coordination from `app.js`. Route layers now belong to `route-map.js`.
 - [ ] Remove compatibility globals after converting the remaining legacy unit-test harnesses to module interfaces.
 - [ ] Add JSDoc domain types and a practical static type check to extracted modules.
+- [ ] Raise coordinator and Fog renderer coverage. The unit report includes subprocess and worker entry files, but it does not collect child-process or browser execution.
 - [ ] Measure storage limits and import latency on representative devices before selecting IndexedDB or a different map renderer.
 - [ ] Test geolocation success, denial, and stale callbacks through the browser permission interface.
 - [ ] Test VoiceOver or NVDA through import, reorder, hide, download, and delete. Check single-pointer map panning alternatives.

@@ -17,9 +17,24 @@ export function normalizeCoordinate(value) {
 }
 
 export function normalizeTime(value) {
-    if (typeof value !== 'string' || !/^\d{4}-\d\d-\d\dT/.test(value)) return null;
+    if (typeof value !== 'string') return null;
+    value = value.trim();
+    const fields = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|([+-])(\d{2}):(\d{2}))?$/.exec(value);
+    if (!fields) return null;
+    const [, yearText, monthText, dayText, hourText, minuteText, secondText, fraction, zone, , offsetHourText, offsetMinuteText] = fields;
+    const [year, month, day, hour, minute, second] = [yearText, monthText, dayText, hourText, minuteText, secondText].map(Number);
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (year === 0 || month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1] ||
+        hour > 24 || minute > 59 || second > 59 || (hour === 24 && (minute || second || Number(fraction)))) return null;
+    if (offsetHourText && (Number(offsetHourText) > 14 || Number(offsetMinuteText) > 59 ||
+        (Number(offsetHourText) === 14 && Number(offsetMinuteText) !== 0))) return null;
+    // An absent zone is a wall time. Never assign the importing device's zone.
+    if (!zone) return value;
     const milliseconds = Date.parse(value);
-    return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : null;
+    if (!Number.isFinite(milliseconds)) return null;
+    const normalized = new Date(milliseconds).toISOString();
+    return fraction?.length > 4 ? normalized.replace(/\.\d{3}Z$/, `${fraction}Z`) : normalized;
 }
 
 export function normalizeTrack(data) {
@@ -53,12 +68,12 @@ export function mapGeometry(track) {
     return track.segmentStarts?.length > 1 ? trackSegments(track) : track.coordinates;
 }
 
-export function trackFromSegments(segments, name = null) {
+export function trackFromSegments(segments, name = null, budget = { points: 0 }) {
     const coordinates = [], elevations = [], times = [], segmentStarts = [];
     for (const points of segments) {
         segmentStarts.push(coordinates.length);
         for (const point of points) {
-            if (coordinates.length >= MAX_TRACK_POINTS) throw new Error('File contains too many track points.');
+            if (++budget.points > MAX_TRACK_POINTS) throw new Error('File contains too many track points.');
             coordinates.push(point.coordinate);
             elevations.push(point.elevation ?? null);
             times.push(point.time ?? null);

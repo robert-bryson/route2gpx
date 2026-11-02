@@ -646,15 +646,16 @@ function exitClickMode() {
     updateClickModeUi();
 }
 
+// Programmatic edits must run the same validation, draft, and stale-request hooks.
+function setEndpointValue(input, value) {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 function setMapPickValue(target, latLng) {
-    if (target === 'origin') {
-        const input = document.getElementById('origin');
-        input.value = latLng;
-        updateInputValidation(input);
-    } else if (target === 'destination') {
-        const input = document.getElementById('destination');
-        input.value = latLng;
-        updateInputValidation(input);
+    if (target === 'origin' || target === 'destination') {
+        const input = document.getElementById(target);
+        setEndpointValue(input, latLng);
     } else if (target === 'waypoint') {
         addStop(latLng);
     }
@@ -993,8 +994,8 @@ document.getElementById('apiKeyInput').addEventListener('keydown', function (e) 
 
 // ============ Geolocation ============
 function getValidatedPositionLatLng(position) {
-    const latitude = Number(position?.coords?.latitude);
-    const longitude = Number(position?.coords?.longitude);
+    const latitude = numericValue(position?.coords?.latitude);
+    const longitude = numericValue(position?.coords?.longitude);
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !isValidLatLng({ latitude, longitude })) {
         return null;
     }
@@ -1035,11 +1036,20 @@ function useMyLocation(field) {
         return;
     }
 
+    const input = document.getElementById(field);
+    if (!input) return;
+    const originalValue = input.value;
     const requestId = ++geolocationRequestId;
+    const invalidate = () => { if (requestId === geolocationRequestId) geolocationRequestId++; };
+    input.addEventListener('input', invalidate, { once: true });
+    const isCurrent = () => {
+        input.removeEventListener('input', invalidate);
+        return requestId === geolocationRequestId && input.isConnected && input.value === originalValue;
+    };
     showStatus('Getting your location...');
     navigator.geolocation.getCurrentPosition(
         (position) => {
-            if (requestId !== geolocationRequestId) return;
+            if (!isCurrent()) return;
             const latLngPosition = getValidatedPositionLatLng(position);
             if (!latLngPosition) {
                 showStatus('Unable to use the reported location coordinates', true);
@@ -1047,14 +1057,12 @@ function useMyLocation(field) {
             }
             const { latitude, longitude } = latLngPosition;
             const latLng = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
-            const input = document.getElementById(field);
-            input.value = latLng;
-            updateInputValidation(input);
+            setEndpointValue(input, latLng);
             updatePreviewMarkers();
             showStatus('Location set');
         },
         (error) => {
-            if (requestId !== geolocationRequestId) return;
+            if (!isCurrent()) return;
             showStatus('Unable to get your location: ' + error.message, true);
         },
         { enableHighAccuracy: true, timeout: 10000 }
@@ -1219,8 +1227,8 @@ function moveEndpoint(endpoint, direction) {
     if (targetIndex < 0 || targetIndex >= routePoints.length) return;
 
     [routePoints[endpointIndex], routePoints[targetIndex]] = [routePoints[targetIndex], routePoints[endpointIndex]];
-    originInput.value = routePoints[0];
-    destInput.value = routePoints[routePoints.length - 1];
+    setEndpointValue(originInput, routePoints[0]);
+    setEndpointValue(destInput, routePoints[routePoints.length - 1]);
     replaceStops(routePoints.slice(1, -1).filter(Boolean));
 
     updateEndpointValidation();
@@ -1234,8 +1242,8 @@ function reverseRoute() {
 
     // Swap origin and destination
     const temp = originInput.value;
-    originInput.value = destInput.value;
-    destInput.value = temp;
+    setEndpointValue(originInput, destInput.value);
+    setEndpointValue(destInput, temp);
 
     // Reverse waypoints
     const stops = getStops();
@@ -1412,8 +1420,8 @@ function loadDraft() {
         const draft = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY));
         const request = normalizeRouteRequest(draft);
         if (!request) return;
-        document.getElementById('origin').value = request.origin;
-        document.getElementById('destination').value = request.destination;
+        setEndpointValue(document.getElementById('origin'), request.origin);
+        setEndpointValue(document.getElementById('destination'), request.destination);
         replaceStops(request.stops); selectTravelMode(request.travelMode, false);
         const departure = document.getElementById('departureTime');
         if (departure && typeof draft.departureTime === 'string') departure.value = draft.departureTime;
@@ -1823,8 +1831,8 @@ function undoDelete() {
 function loadRouteIntoPlanner(id) {
     const route = routes.find(item => item.id === id);
     if (!route?.request) return;
-    document.getElementById('origin').value = route.request.origin;
-    document.getElementById('destination').value = route.request.destination;
+    setEndpointValue(document.getElementById('origin'), route.request.origin);
+    setEndpointValue(document.getElementById('destination'), route.request.destination);
     replaceStops(route.request.stops); selectTravelMode(route.request.travelMode);
     const departure = document.getElementById('departureTime');
     if (departure) departure.value = route.request.departureTime ? toLocalDatetime(route.request.departureTime) : '';

@@ -1,9 +1,54 @@
 import { describe, test, expect } from 'vitest';
-import { normalizeTrack, numericValue, trackDistance, mapGeometry } from '../track-data.js';
+import { normalizeTrack, normalizeTime, numericValue, trackDistance, mapGeometry, MAX_TRACK_POINTS } from '../track-data.js';
 import { parseGPX, parseKML, parseTCX, parseGeoJSON } from '../gps-import.js';
 import { generateGPX, uniqueGpxFilenames } from '../gpx.js';
 
 describe('track integrity through import, restore, and export', () => {
+    test.each([
+        '2020-02-31T00:00:00Z', '2021-02-29T00:00:00Z', '2020-04-31T00:00:00Z',
+        '2020-13-01T00:00:00Z', '2020-01-01T25:00:00Z', '2020-01-01T00:00:00+14:01',
+        '1900-02-29T00:00:00Z', '0000-01-01T00:00:00Z', '2020-01-01T24:00:01Z',
+        '2020-01-01T00:60:00Z', '2020-01-01T00:00:60Z', '2020-01-01T00:00:00+15:00',
+        '2020-01-01T00:00:00+01:60',
+    ])('omits an invalid recorded time: %s', value => {
+        expect(normalizeTime(value)).toBeNull();
+    });
+
+    test.each([
+        ['2000-02-29T00:00:00Z', '2000-02-29T00:00:00.000Z'],
+        ['2020-01-01T00:30:00+01:00', '2019-12-31T23:30:00.000Z'],
+        ['2020-01-01T00:00:00-14:00', '2020-01-01T14:00:00.000Z'],
+        ['2020-01-01T24:00:00Z', '2020-01-02T00:00:00.000Z'],
+        ['2020-01-01T00:00:00.1Z', '2020-01-01T00:00:00.100Z'],
+    ])('keeps a valid calendar date and offset: %s', (value, expected) => {
+        expect(normalizeTime(value)).toBe(expected);
+    });
+
+    test('preserves unzoned wall times and submillisecond precision without inferring a timezone', () => {
+        expect(normalizeTime('2020-01-01T00:00:00')).toBe('2020-01-01T00:00:00');
+        expect(normalizeTime('2020-02-29T12:30:00.123456+02:30')).toBe('2020-02-29T10:00:00.123456Z');
+        expect(normalizeTime(' 2020-02-29T12:30:00Z ')).toBe('2020-02-29T12:30:00.000Z');
+        const imported = parseGPX('<gpx><trk><trkseg><trkpt lat="1" lon="1"><time>2020-02-31T00:00:00Z</time></trkpt><trkpt lat="2" lon="2"><time>2020-01-01T00:00:00</time></trkpt></trkseg></trk></gpx>');
+        const output = new DOMParser().parseFromString(generateGPX(imported), 'application/xml');
+        expect([...output.querySelectorAll('trkpt > time')].map(node => node.textContent)).toEqual(['2020-01-01T00:00:00']);
+    });
+
+    test('enforces the file point budget across tracks, including invalid coordinates', () => {
+        const coordinates = Array(Math.floor(MAX_TRACK_POINTS / 2)).fill(null);
+        coordinates.push([1, 1], [2, 2]);
+        const source = JSON.stringify({ type: 'FeatureCollection', features: [0, 1].map(() => ({
+            type: 'Feature', geometry: { type: 'LineString', coordinates },
+        })) });
+        expect(() => parseGeoJSON(source)).toThrow(/too many track points|point limit/);
+    });
+
+    test('replaces forbidden XML characters while preserving valid Unicode in exports', () => {
+        const xml = generateGPX({ name: 'A\u0000\u0001B\ud800😀', coordinates: [[1, 1], [2, 2]] });
+        const doc = new DOMParser().parseFromString(xml, 'application/xml');
+        expect(doc.querySelector('parsererror')).toBeNull();
+        expect(doc.querySelector('metadata > name').textContent).toBe('A��B�😀');
+    });
+
     test('keeps unknown numeric fields unknown and accepts explicit zero', () => {
         for (const value of [null, undefined, '', ' ', false, true, '0x10', Infinity]) expect(numericValue(value)).toBeNull();
         expect(numericValue('0')).toBe(0);
@@ -54,6 +99,16 @@ describe('track integrity through import, restore, and export', () => {
         expect(data.coordinates).toEqual([[1, 2], [3, 4]]);
         expect(data.segmentStarts).toEqual([0, 1]);
         expect(data.times[0]).toBe('2020-01-01T00:00:00.000Z');
+    });
+
+    test('aligns gx:Track times across lazy KML segments and invalid points', () => {
+        const source = '<kml xmlns:gx="http://www.google.com/kml/ext/2.2"><Placemark><gx:MultiTrack><gx:Track><when>2020-01-01T00:00:00Z</when><when>2020-01-01T00:00:01Z</when><when>2020-01-01T00:00:02Z</when><gx:coord>1 1 0</gx:coord><gx:coord>invalid</gx:coord><gx:coord>2 2 20</gx:coord></gx:Track><gx:Track><when>2020-01-01T00:00:03Z</when><when>2020-01-01T00:00:04Z</when><gx:coord>3 3 30</gx:coord><gx:coord>4 4 40</gx:coord></gx:Track></gx:MultiTrack></Placemark></kml>';
+        const result = parseKML(source);
+        expect(result.coordinates).toEqual([[1, 1], [2, 2], [3, 3], [4, 4]]);
+        expect(result.elevations).toEqual([0, 20, 30, 40]);
+        expect(result.segmentStarts).toEqual([0, 1, 2]);
+        expect(result.times).toEqual([0, 2, 3, 4].map(second => `2020-01-01T00:00:0${second}.000Z`));
+        expect(result.diagnostics.skippedPoints).toBe(1);
     });
 
     test('synthesizes time only by explicit choice and distributes it by distance', () => {

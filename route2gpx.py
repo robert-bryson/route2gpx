@@ -29,6 +29,9 @@ def sanitize_filename(value):
 
 def escape_xml(text):
     """Escape special characters for XML output."""
+    text = re.sub(
+        r"[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]", "\ufffd", text
+    )
     return (
         text.replace("&", "&amp;")
         .replace("<", "&lt;")

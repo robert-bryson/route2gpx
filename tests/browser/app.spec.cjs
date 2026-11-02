@@ -11,6 +11,40 @@ test.beforeEach(async ({ page }) => {
     await page.route(/https:\/\/[a-d]\.basemaps\.cartocdn\.com\//, route => route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jxXkAAAAASUVORK5CYII=', 'base64') }));
 });
 
+async function mockGeolocation(page) {
+    await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'geolocation', {
+            configurable: true,
+            value: { getCurrentPosition: (success, error) => { window.pendingPosition = { success, error }; } },
+        });
+    });
+    await page.goto('/');
+}
+
+test('preserves edited planner values when geolocation completes late', async ({ page }) => {
+    await mockGeolocation(page);
+    await page.locator('#origin').fill('Original origin');
+    await page.locator('[data-gps-field="origin"]').click();
+    await page.locator('#origin').fill('New origin');
+    await page.locator('#origin').fill('Original origin');
+    await page.evaluate(() => window.pendingPosition.success({ coords: { latitude: 10, longitude: 20 } }));
+    await expect(page.locator('#origin')).toHaveValue('Original origin');
+});
+
+test('persists accepted geolocation and reports permission errors', async ({ page }) => {
+    await mockGeolocation(page);
+    await page.locator('[data-gps-field="origin"]').click();
+    await page.evaluate(() => window.pendingPosition.success({ coords: { latitude: 10, longitude: 20 } }));
+    await expect(page.locator('#origin')).toHaveValue('10.000000, 20.000000');
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('route2gpx_draft'))?.origin)).toBe('10.000000, 20.000000');
+    await page.reload();
+    await expect(page.locator('#origin')).toHaveValue('10.000000, 20.000000');
+    await page.locator('[data-gps-field="destination"]').click();
+    await page.evaluate(() => window.pendingPosition.error({ code: 1, message: 'Permission denied' }));
+    await expect(page.locator('#status')).toContainText('Permission denied');
+    await expect(page.locator('#destination')).toHaveValue('');
+});
+
 test('imports without a key, preserves gaps and recorded fields through reload and download', async ({ page }) => {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));

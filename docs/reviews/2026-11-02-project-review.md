@@ -1,5 +1,7 @@
 # Project review — November 2, 2026
 
+This is a historical report. Source line numbers and baseline measurements below refer to the earlier implementation. Read the [follow-up review](2026-11-02-follow-up-review.md) for the latest defects, fixes, and verification. Use [README.md](../../README.md) for current instructions.
+
 Reviewed commit `25009f9` across the browser app, Python CLI, tests, build, CI, and Terraform. The best improvements are preserving imported data accurately, making failures recoverable, and improving the planner on small screens. The existing static architecture and small bundle are useful foundations.
 
 **Implementation follow-up:** The working-tree review used commit `25009f9` as its fixed point. The implementation addresses the data/export, persistence-feedback, duplicate-submission, viewport, focus, provider-error, and request-validation defects below. It adds bounded worker imports, shared elevation scheduling, versioned geometry storage, locally served runtime assets, browser CI, and shared deployment headers. See [current usage](../../README.md), [module responsibilities](../architecture.md), and [remaining work](../../TODO.md). Provider agreement fit and retention by data source remain open decisions.
@@ -44,7 +46,7 @@ The original review combined source inspection, primary-source research, Chrome 
 
 Chrome used an isolated browser context, synthetic files and keys, intercepted Google responses, and mocked elevation requests for request-behavior checks. No authenticated Google requests or real elevation lookups were needed. Local builds intentionally had no CARTO key, so their tile watermark is an expected local-preview limitation, not evidence of a deployed basemap defect. Browser measurements are desktop lab observations, not field Core Web Vitals or a screen-reader conformance assessment.
 
-Temporary evidence is in `/private/tmp/route2gpx-review/` (`results.json`, screenshots, and deployment headers); the browser harness is `/private/tmp/route2gpx-review-browser.cjs`. These paths are session artifacts. Durable reproductions and expected behavior are described below.
+The original session used temporary browser artifacts. Those paths are not part of the repository. The sections below record the durable reproduction steps and expected behavior.
 
 ## Decisions and fixes with the highest return
 

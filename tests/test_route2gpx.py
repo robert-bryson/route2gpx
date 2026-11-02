@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from unittest import mock
+from xml.etree import ElementTree
 
 import pytest
 import requests
@@ -129,6 +130,12 @@ class TestRouteApiHelpers:
 
 
 class TestGPXOutput:
+    def test_replaces_forbidden_xml_characters_in_names(self):
+        content = route2gpx.generate_gpx("A\x00\x01B\ud800😀", "End", [(1, 1), (2, 2)])
+        root = ElementTree.fromstring(content)
+        name = root.find("{*}trk/{*}name")
+        assert name.text == "Route: A��B�😀 to End"
+
     def test_gpx_contains_required_elements(self):
         content = route2gpx.generate_gpx(
             "Origin",

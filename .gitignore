@@ -10,6 +10,7 @@ terraform.tfvars.json
 node_modules/
 test-results/
 playwright-report/
+coverage/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

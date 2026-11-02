@@ -610,6 +610,36 @@ describe('map click picker', () => {
 
 // ============ geolocation ==========
 describe('geolocation', () => {
+  test.each(['typed', 'reordered', 'reordered and reverted', 'edited and reverted'])('keeps an endpoint that was %s while geolocation was pending', (change) => {
+    const input = document.getElementById('origin');
+    const getCurrentPosition = navigator.geolocation.getCurrentPosition;
+    getCurrentPosition.mockReset();
+    let deliver;
+    getCurrentPosition.mockImplementation(success => { deliver = success; });
+    input.value = 'Original origin';
+    document.getElementById('destination').value = 'Original destination';
+    document.getElementById('stopsContainer').replaceChildren();
+    globalThis.useMyLocation('origin');
+    if (change.startsWith('reordered')) {
+      globalThis.moveEndpoint('origin', 1);
+      if (change.endsWith('reverted')) globalThis.moveEndpoint('origin', 1);
+    } else {
+      input.value = 'New origin';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      if (change === 'edited and reverted') {
+        input.value = 'Original origin';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+    const expected = input.value;
+    deliver({ coords: { latitude: 10, longitude: 20 } });
+    expect(input.value).toBe(expected);
+  });
+
+  test.each([null, undefined, '', ' ', false, []])('rejects absent or coerced geolocation coordinates: %j', value => {
+    expect(globalThis.getValidatedPositionLatLng({ coords: { latitude: value, longitude: value } })).toBeNull();
+  });
+
   test('ignores stale geolocation callbacks after a newer request starts', () => {
     const getCurrentPosition = globalThis.navigator.geolocation.getCurrentPosition;
     const callbacks = [];

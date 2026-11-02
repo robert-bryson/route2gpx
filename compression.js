@@ -1,3 +1,5 @@
+export class DecompressionLimitError extends Error {}
+
 function inflator(data, maxBytes, implementation) {
     if (!implementation?.Inflate) throw new Error('Decompression support is unavailable. Please retry.');
     const chunks = [];
@@ -5,7 +7,7 @@ function inflator(data, maxBytes, implementation) {
     const stream = new implementation.Inflate({ chunkSize: 64 * 1024 });
     stream.onData = chunk => {
         size += chunk.byteLength;
-        if (size > maxBytes) throw new Error('Decompressed file is too large.');
+        if (size > maxBytes) throw new DecompressionLimitError('Decompressed file is too large.');
         chunks.push(chunk);
     };
     return {

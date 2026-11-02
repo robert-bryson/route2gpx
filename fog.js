@@ -1,4 +1,4 @@
-import { inflateBounded, readZipEntryBounded } from './compression.js';
+import { DecompressionLimitError, inflateBounded, readZipEntryBounded } from './compression.js';
 
 let fogDependencies = null;
 const dependencies = () => fogDependencies || globalThis;
@@ -74,20 +74,22 @@ class FowTile {
         if (actualData.byteLength < FOW_TILE_HEADER_SIZE) throw new Error('Truncated Fog of World tile header.');
 
         // Parse header - 128x128 grid, each entry is uint16 index
-        const header = new Uint16Array(
-            actualData.slice(0, FOW_TILE_HEADER_SIZE).buffer
-        );
+        const header = new DataView(actualData.buffer, actualData.byteOffset, FOW_TILE_HEADER_SIZE);
 
         const blocks = new Map();
 
-        for (let i = 0; i < header.length; i++) {
-            const blockIdx = header[i];
+        for (let i = 0; i < FOW_TILE_HEADER_LEN; i++) {
+            const blockIdx = header.getUint16(i * 2, true);
             if (blockIdx > 0) {
                 const blockX = i % FOW_TILE_WIDTH;
                 const blockY = Math.floor(i / FOW_TILE_WIDTH);
                 const startOffset = FOW_TILE_HEADER_SIZE + (blockIdx - 1) * FOW_BLOCK_SIZE;
                 const endOffset = startOffset + FOW_BLOCK_SIZE;
                 if (endOffset > actualData.length) throw new Error('Invalid Fog of World block reference.');
+                if (budget.bytes + FOW_BLOCK_BITMAP_SIZE > FOW_MAX_DECOMPRESSED_BYTES) {
+                    throw new DecompressionLimitError('Fog of World data is too large after decompression.');
+                }
+                budget.bytes += FOW_BLOCK_BITMAP_SIZE;
                 const blockData = actualData.subarray(startOffset, endOffset);
                 const bitmap = blockData.slice(0, FOW_BLOCK_BITMAP_SIZE);
                 blocks.set(FowTile.makeKey(blockX, blockY), new FowBlock(blockX, blockY, bitmap));
@@ -111,9 +113,8 @@ class FogMap {
         this.tiles = tiles; // Map<string, FowTile>
     }
 
-    static createFromFiles(files) {
+    static createFromFiles(files, budget = { bytes: 0 }) {
         const tiles = new Map();
-        const budget = { bytes: 0 };
         files.forEach(([filename, data]) => {
             try {
                 const tile = FowTile.create(filename, data, budget);
@@ -121,6 +122,7 @@ class FogMap {
                     tiles.set(FowTile.makeKey(tile.x, tile.y), tile);
                 }
             } catch (e) {
+                if (e instanceof DecompressionLimitError) throw e;
                 console.warn(`Skipping invalid tile file: ${filename}`, e);
             }
         });

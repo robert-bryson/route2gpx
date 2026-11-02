@@ -35,21 +35,25 @@ jobs:
         run: poetry run pytest --cov=route2gpx --cov-report=term-missing tests/test_route2gpx.py
 
   javascript:
-    name: JavaScript tests
+    name: JavaScript tests (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22.22.2", "24.15.0", "26.12.0"]
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: ${{ matrix.node }}
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
       - name: Run tests
-        run: npm run lint && npm test
+        run: npm run lint && npm run test:coverage
 
       - name: Verify build
         run: npm run build
@@ -64,7 +68,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: browser-failures
+          name: browser-failures-node-${{ matrix.node }}
           path: test-results/
           retention-days: 7
 
