@@ -79,7 +79,21 @@ Draw route geometry before optional labels resolve. Apply late labels only while
 
 Use `setEndpointValue` for programmatic endpoint edits. It dispatches the same input event as a user edit. This updates validation and the saved draft. It also invalidates a pending geolocation result. Reordering twice must not restore permission for an old callback to overwrite the planner.
 
-Keep preview markers suppressed for completed planner points until the inputs change. This also applies to delayed input callbacks.
+Keep the planner's origin, numbered waypoints, and destination visible after route calculation. Planner pins focus their corresponding input when selected. Clearing the planner cancels its active route calculation and place lookups, removes only its points and pins, and saves the empty draft. Saved routes remain available through Edit / reuse.
+
+### Planner points and place names
+
+Keep exact coordinates in planner inputs and route requests. Store display names with the draft and request. Render names as text. Retain coordinates when lookup fails.
+
+Map and GPS picks request names when a key is available. Typed coordinates require the explicit option and **Get Route**. Apply that option to coordinate waypoints as well as endpoints. Saving a key and reusing a route must not start requests for typed coordinates.
+
+Use one lookup path for every coordinate source. It owns cached names, pending promises, and abort controllers. Use canonical coordinates to deduplicate equivalent input strings. Limit stored names to 500 characters. Route drawing must not wait for names.
+
+On reset, abort and remove every pending lookup. Check lookup identity before applying a response. An old response must not replace a newer lookup for the same coordinates. Names must not reappear in a cleared draft. Apply results only to routes that still exist. Preserve explicit route renames.
+
+Retain each planner marker while its input remains valid. Update its position, icon, and text in place. Release its handlers and tooltip when the input is cleared or removed. Keep pin numbers aligned with input row numbers, including empty rows. Enter and Space must focus the pin's input. Preserve pin focus during label and color changes.
+
+Validate encoded route geometry before adding route data or map layers. Reject invalid characters, overflowing encoded values, out-of-range coordinates, and routes above the shared point limit. Reject the complete route; do not salvage part of a calculated route.
 
 ## Fog memory budget
 
@@ -93,7 +107,7 @@ Run `npm run check` and browser tests against a fresh build. Run `npm run test:c
 
 Browser tests use real Leaflet, intercepted provider responses, and generated files. Unit tests cover data integrity, memory limits, worker lifecycle, failed storage commits, cancellation, map cleanup, text escaping, route-list focus recovery, dialog behavior, and Fog drawing across all three zoom regimes. A low-zoom Fog block clears an output pixel only if its bitmap contains a visited bit.
 
-Coverage includes all root JavaScript files. Global minimums are 80% statements, 71% branches, 84% functions, and 83% lines. The coordinator, dialogs, route list, Fog, and XML modules also have individual minimums. Child-process build checks and browser tests do not contribute to the unit coverage report.
+Coverage includes all root JavaScript files. Global minimums are 82% statements, 73% branches, 86% functions, and 85% lines. The coordinator, dialogs, route list, Fog, and XML modules also have individual minimums. Child-process build checks and browser tests do not contribute to the unit coverage report.
 
 The build includes notices for bundled XML dependencies under `dist/vendor/`. `licenses/saxes.txt` retains the [upstream saxes 6.0.0 notice](https://raw.githubusercontent.com/lddubeau/saxes/v6.0.0/LICENSE), which is absent from that npm package. The xmlchars notice comes from its installed package.
 

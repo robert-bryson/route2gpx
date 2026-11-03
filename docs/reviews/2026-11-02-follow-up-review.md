@@ -1,6 +1,6 @@
 # Follow-up review: November 2, 2026
 
-This is a historical report. Counts and implementation details refer to its reviewed revision. Read the [current review](2026-11-02-architecture-hardening.md) for later fixes and verification.
+This is a historical report. Counts and implementation details refer to its reviewed revision. Read the [current review](2026-11-02-planner-review.md) for later fixes and verification.
 
 ## Scope and assessment
 

@@ -35,6 +35,22 @@ function fixture() {
 const route = (id, extra = {}) => ({ id, name: 'Trail', origin: 'A', destination: 'B', color: '#ff4757', coordinates: [[1, 2], [2, 3], [3, 4], [4, 5]], segmentStarts: [0, 2], visible: true, ...extra });
 
 describe('route map lifecycle', () => {
+    test('shows planner pins in place of duplicate route endpoints and restores saved endpoints when cleared', () => {
+        const { view, markers, map, lines } = fixture();
+        view.setPlannerCoordinates([[1, 2]]);
+        view.add(route(1));
+        expect(markers[0].addTo).not.toHaveBeenCalled();
+        expect(markers[1].addTo).toHaveBeenCalledOnce();
+        view.setVisible(1, false);
+        markers.forEach(marker => marker.addTo.mockClear());
+        view.setPlannerCoordinates([]);
+        expect(markers.every(marker => marker.addTo.mock.calls.length === 0)).toBe(true);
+        view.setVisible(1, true);
+        expect(markers.every(marker => marker.addTo.mock.calls.length === 1)).toBe(true);
+        expect(map.removeLayer).toHaveBeenCalledWith(markers[0]);
+        expect(lines[0].addTo).toHaveBeenCalledTimes(2);
+    });
+
     test('keeps map layers separate from route data and preserves full segments', () => {
         const { view, leaflet, lines, markers } = fixture();
         const data = route(1), original = structuredClone(data);

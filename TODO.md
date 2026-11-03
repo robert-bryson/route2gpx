@@ -1,6 +1,6 @@
 # Remaining work
 
-The [current review](docs/reviews/2026-11-02-architecture-hardening.md) records completed fixes and validation. Read the [architecture guide](docs/architecture.md) before you change module boundaries. This list contains unfinished work only.
+The [current review](docs/reviews/2026-11-02-planner-review.md) records completed fixes and validation. Read the [architecture guide](docs/architecture.md) before you change module boundaries. This list contains unfinished work only.
 
 ## Before deployment
 

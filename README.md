@@ -11,9 +11,17 @@ Convert planned routes and recorded GPS tracks to GPX files. Use the [web app](h
 
 Use **Edit / reuse** to copy a calculated route into the planner. Rename a route to change its display name. After deletion, **Undo** remains available for 15 seconds.
 
+Use **Clear planner** to remove all planner points and pins. This also cancels route calculation and pending place-name lookups. Saved routes remain available through **Edit / reuse**.
+
+Use an endpoint's clear button to clear that field. Use a waypoint's × button to remove its row. Planner pins stay visible after route calculation. Select a pin with a pointer, Enter, or Space to focus its field.
+
 On small screens, use **Planner** and **Map** to change views. The app saves the planner draft separately from completed routes. A late location result cannot replace an endpoint that you edited while the request was pending.
 
 Map clicks can set endpoints after confirmation. The guided picker sets endpoints and waypoints in sequence. Intermediate stops appear between the origin and destination. Transit does not accept intermediate stops. Other modes accept up to 25.
+
+With a Google key, map and GPS picks look up a place name. The name appears beside the coordinates and on the pin. Exact coordinates remain the routing location. Names survive reload and route reuse. If lookup fails, use the coordinates.
+
+For typed coordinates, select **Also look up names for typed coordinates**, then select **Get Route**. This option includes coordinate waypoints. Saving a key or reusing a route does not start place-name requests. Points picked without a key keep their coordinates. Pick them again with a key, or use the typed-coordinate option, to request names.
 
 Use the keyboard to select a mode or unit, move waypoints, and operate route controls and dialogs. Automated tests check focus preservation. Physical-device checks remain necessary for screen readers and mobile keyboards.
 
@@ -45,9 +53,17 @@ Fog of World ZIP files have a separate 250 MB input limit. A 512 MB allocation b
 
 Imports run locally. Completed routes use browser localStorage. An unsaved-data notice remains visible if storage fails. Export routes before clearing browser data.
 
-Route requests go directly to Google Routes API. Optional coordinate labels go to Google Geocoding API. Map tiles come from CARTO. Deployed elevation requests pass through the same-origin Amplify rewrite to Open Topo Data. The app does not upload routes or API keys to an application database.
+| Action | Data destination |
+| --- | --- |
+| Calculate a route | Locations and the Google key go directly to Google Routes API. |
+| Pick a map or GPS point with a key | Coordinates and the key go to Google Geocoding API. |
+| Calculate with typed-coordinate names enabled | Coordinate endpoints and waypoints also go to Google Geocoding API. |
+| Display the map | Tile requests go to CARTO. |
+| Add elevation | Sample coordinates go through the site's Amplify proxy to Open Topo Data. |
 
-Create a dedicated Google API key. Restrict it to the deployed website and necessary APIs. Enable Geocoding only if you use coordinate labels.
+The app does not upload routes or API keys to an application database. Place names are display labels. They do not replace coordinates in route requests.
+
+Create a dedicated Google API key. Restrict it to the deployed website and necessary APIs. Enable Geocoding for place-name lookups.
 
 By default, keys use storage for the current browser tab. You can select persistent browser storage. If that write fails, the app attempts tab storage. Verify authenticated requests and key restrictions on the deployed HTTPS origin.
 
@@ -73,8 +89,6 @@ npm run dev
 
 Run `npm run test:coverage` for JavaScript coverage. Open `coverage/index.html` for the report. CI enforces minimum coverage levels in `vitest.config.mjs`. The report includes all root JavaScript files. It does not collect coverage from browser tests or child processes.
 
-Run `node scripts/benchmark-xml.cjs 100000` to compare XML parsing time and peak process memory against the DOM implementation at `f4c77eb`. Both samples run in separate processes with the same jsdom startup cost. These measurements do not establish mobile-device memory limits.
-
 The build follows ES module imports. It writes hashed JavaScript, CSS, and an import worker to `dist/`. Leaflet, JSZip, and Pako use versions pinned in the lockfile and are served locally with integrity hashes and licenses. Startup does not require a script CDN.
 
 `customHttp.yml` defines the headers for Amplify, Terraform, local preview, and the HTML CSP. Production HTML revalidates. Fingerprinted assets use immutable caching. Deploy again to apply header changes, then check the actual responses. Local preview revalidates all files.
@@ -91,7 +105,9 @@ Tests use real Leaflet, local fixtures, generated downloads, and intercepted pro
 
 CI checks Node 22.22.2, 24.15.0, and 26.12.0. Each job runs lint, coverage, the build, and browser tests. Amplify runs lint and unit tests before it packages the app.
 
-The [architecture guide](docs/architecture.md) describes module boundaries, storage commits, and validation. The [hardening report](docs/reviews/2026-11-02-architecture-hardening.md) records the latest changes, memory measurements, and verification limits. The [follow-up review](docs/reviews/2026-11-02-follow-up-review.md) retains earlier findings. [TODO.md](TODO.md) lists remaining work.
+The [current review](docs/reviews/2026-11-02-planner-review.md) records defects, fixes, and test results. The [architecture guide](docs/architecture.md) defines module boundaries and data rules. [TODO.md](TODO.md) lists unfinished work.
+
+For XML memory measurements, read the [earlier hardening report](docs/reviews/2026-11-02-architecture-hardening.md#desktop-measurement). Run `node scripts/benchmark-xml.cjs 100000` to compare parsing against the DOM implementation at `f4c77eb`. These desktop measurements do not establish mobile-device limits.
 
 ### Amplify build environment
 
@@ -145,7 +161,9 @@ poetry run python route2gpx.py "Seattle, WA" "Portland, OR" DRIVE
 
 Specify one of these modes: `DRIVE`, `TRANSIT`, `BICYCLE`, or `WALK`. The default output for this example is `drive-route_Seattle_ WA-Portland_ OR.gpx`. Filename conversion preserves spaces.
 
-Use `--output custom.gpx` to choose a path. Existing files are preserved unless you add `--force`. Output omits invented elevation and point times by default. Add `--timestamps` to synthesize times from route duration. `--start-time 2026-11-02T10:00:00-08:00` sets an explicit synthesis start; a start without a time-zone offset uses UTC.
+Use `--output custom.gpx` to choose a path. Add `--force` to replace an existing file.
+
+Output omits unknown elevation and point times by default. Add `--timestamps` to synthesize times from route duration. Use `--start-time 2026-11-02T10:00:00-08:00` to set the synthesis start. A start time without a time-zone offset uses UTC.
 
 Run Python checks:
 

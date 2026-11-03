@@ -1,7 +1,7 @@
 import { createRouteList, escapeHtml, formatDuration } from './route-list.js';
 import { createAppDialogs, exportDataDescription } from './app-dialogs.js';
 import { parseImportBuffer, detectImportFormat } from './gps-import.js';
-import { normalizeTrack, numericValue, trackDistance } from './track-data.js';
+import { normalizeTrack, numericValue, trackDistance, MAX_TRACK_POINTS } from './track-data.js';
 import { generateGPX, sanitizeFilename, uniqueGpxFilenames } from './gpx.js';
 import { computeRoute, validateRouteRequest, MAX_WAYPOINTS } from './google-routes.js';
 import { requestJson } from './network.js';
@@ -18,9 +18,10 @@ let routes = [];
 let clickMode = null; // null, 'origin', 'destination', 'waypoint'
 let clickModeFlow = 'single'; // 'single' or 'route'
 let distanceUnit = 'km';
-let previewMarkers = [];
-let completedPlannerPoints = null;
-let completedPlannerRouteId = null;
+const previewMarkers = new Map();
+const plannerPlaceNames = new Map();
+const plannerPlaceLookups = new Map();
+let lastPlannerPointId = 0;
 let statusTimer = null;
 let pendingMapClickPrompt = null;
 let activeRoutePopup = null;
@@ -393,7 +394,7 @@ function nextRouteId() {
 
 function normalizeRouteRequest(value) {
     if (!value || typeof value.origin !== 'string' || typeof value.destination !== 'string') return null;
-    return { origin: value.origin, destination: value.destination, departureTime: typeof value.departureTime === 'string' && Number.isFinite(Date.parse(value.departureTime)) ? value.departureTime : null, stops: normalizeStops(value.stops).slice(0, MAX_WAYPOINTS), travelMode: ['DRIVE', 'WALK', 'BICYCLE', 'TRANSIT'].includes(value.travelMode) ? value.travelMode : 'DRIVE' };
+    return { origin: value.origin, destination: value.destination, departureTime: typeof value.departureTime === 'string' && Number.isFinite(Date.parse(value.departureTime)) ? value.departureTime : null, stops: normalizeStops(value.stops).slice(0, MAX_WAYPOINTS), travelMode: ['DRIVE', 'WALK', 'BICYCLE', 'TRANSIT'].includes(value.travelMode) ? value.travelMode : 'DRIVE', placeNames: normalizePlaceNames(value.placeNames) };
 }
 
 function restoreRoute(data) {
@@ -429,7 +430,7 @@ function updateRouteMapStyles() {
     routeMap.updateStyles(routes.at(-1)?.id);
 }
 
-function createMarkerIcon(type, color, number = null) {
+function createMarkerIcon(type, color, number = null, planner = false) {
     const colorClass = getRouteColorClass(color);
     let html = '';
     if (type === 'start') {
@@ -442,7 +443,7 @@ function createMarkerIcon(type, color, number = null) {
 
     return L.divIcon({
         html: html,
-        className: 'custom-marker',
+        className: planner ? 'custom-marker planner-marker' : 'custom-marker',
         iconSize: [32, 32],
         iconAnchor: type === 'waypoint' ? [12, 12] : [16, 32]
     });
@@ -475,52 +476,147 @@ function validateLocationInput(input, label) {
     return false;
 }
 
-function clearPreviewMarkers() {
-    previewMarkers.forEach(m => map.removeLayer(m));
-    previewMarkers = [];
+function getPlannerInputs() {
+    return [document.getElementById('origin'), ...document.querySelectorAll('.stop-input'), document.getElementById('destination')];
+}
+
+function coordinateKey(value) {
+    const point = parseLatLngInput(value);
+    return point && isValidLatLng(point) ? `${point.latitude},${point.longitude}` : null;
+}
+
+function normalizePlaceNames(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const names = {};
+    for (const [coordinate, name] of Object.entries(value)) {
+        const key = coordinateKey(coordinate);
+        if (key && typeof name === 'string' && name.trim()) names[key] = name.trim().slice(0, 500);
+    }
+    return names;
+}
+
+function getPlannerPlaceNames() {
+    return Object.fromEntries(getPlannerInputs().map(input => coordinateKey(input.value)).filter(key => plannerPlaceNames.has(key)).map(key => [key, plannerPlaceNames.get(key)]));
+}
+
+function getPlannerPlaceName(value) {
+    return plannerPlaceNames.get(coordinateKey(value)) || '';
+}
+
+function updatePlannerPlaceNames() {
+    getPlannerInputs().forEach(input => {
+        const label = input.id ? document.getElementById(`${input.id}PlaceName`) : input.closest('.stop-location')?.querySelector('.location-name');
+        if (!label) return;
+        const name = getPlannerPlaceName(input.value);
+        label.textContent = name;
+        label.hidden = !name;
+        if (name) input.setAttribute('aria-describedby', label.id);
+        else input.removeAttribute('aria-describedby');
+    });
+}
+
+function updateRoutePlaceNames(route) {
+    if (!route.request) return;
+    const points = [route.request.origin, route.request.destination, ...route.request.stops];
+    for (const point of points) {
+        const name = getPlannerPlaceName(point);
+        if (name) route.request.placeNames[coordinateKey(point)] = name;
+    }
+    const label = value => route.request.placeNames[coordinateKey(value)] || value;
+    route.origin = label(route.request.origin);
+    route.destination = label(route.request.destination);
+    if (!route.renamed) route.name = buildRouteName(route.origin, route.destination);
+    routeMap.updateLabels(route.id);
+}
+
+// All place lookups share this cache and cancellation lifecycle, including
+// optional typed coordinates. Clearing the planner invalidates pending results.
+async function lookupPlaceName(value, apiKey = getApiKey()) {
+    const key = coordinateKey(value);
+    if (!key || !apiKey) return '';
+    if (plannerPlaceNames.has(key)) return plannerPlaceNames.get(key);
+    if (plannerPlaceLookups.has(key)) return plannerPlaceLookups.get(key).promise;
+    const controller = new AbortController();
+    const lookup = { controller };
+    plannerPlaceLookups.set(key, lookup);
+    lookup.promise = reverseGeocodeCoordinate(key, apiKey, controller.signal).then(name => {
+        if (!name || plannerPlaceLookups.get(key) !== lookup) return '';
+        name = name.slice(0, 500);
+        plannerPlaceNames.set(key, name);
+        updatePreviewMarkers();
+        scheduleDraftSave();
+        const matchingRoutes = routes.filter(route => route.request && [route.request.origin, route.request.destination, ...route.request.stops].some(value => coordinateKey(value) === key));
+        matchingRoutes.forEach(updateRoutePlaceNames);
+        if (matchingRoutes.length) { renderRoutesList(); saveToStorage(); }
+        return name;
+    }).finally(() => {
+        if (plannerPlaceLookups.get(key) === lookup) plannerPlaceLookups.delete(key);
+    });
+    return lookup.promise;
 }
 
 function updatePreviewMarkers() {
-    clearPreviewMarkers();
-
-    const origin = document.getElementById('origin').value.trim();
-    const destination = document.getElementById('destination').value.trim();
-    const stops = getStops();
-    if (JSON.stringify([origin, destination, ...stops]) === completedPlannerPoints && routes.some(route => route.id === completedPlannerRouteId && route.visible)) return;
+    updatePlannerPlaceNames();
     const previewColor = document.getElementById('routeColor').value || '#888';
-
-    if (origin) {
-        const latLng = parseLatLngInput(origin);
+    const plannerCoordinates = [];
+    const currentInputs = new Set();
+    getPlannerInputs().forEach((input, index) => {
+        const value = input.value.trim();
+        if (!value) return;
+        const type = input.id === 'origin' ? 'start' : input.id === 'destination' ? 'end' : 'waypoint';
+        const label = type === 'start' ? 'Origin' : type === 'end' ? 'Destination' : `Waypoint ${index}`;
+        const latLng = parseLatLngInput(value);
         if (latLng && isValidLatLng(latLng)) {
-            const marker = L.marker([latLng.latitude, latLng.longitude], {
-                icon: createMarkerIcon('start', previewColor),
-                opacity: 0.7
-            }).addTo(map);
-            previewMarkers.push(marker);
-        }
-    }
-
-    if (destination) {
-        const latLng = parseLatLngInput(destination);
-        if (latLng && isValidLatLng(latLng)) {
-            const marker = L.marker([latLng.latitude, latLng.longitude], {
-                icon: createMarkerIcon('end', previewColor),
-                opacity: 0.7
-            }).addTo(map);
-            previewMarkers.push(marker);
-        }
-    }
-
-    stops.forEach((stop, idx) => {
-        const latLng = parseLatLngInput(stop);
-        if (latLng && isValidLatLng(latLng)) {
-            const marker = L.marker([latLng.latitude, latLng.longitude], {
-                icon: createMarkerIcon('waypoint', previewColor, idx + 1),
-                opacity: 0.7
-            }).addTo(map);
-            previewMarkers.push(marker);
+            const point = [latLng.latitude, latLng.longitude];
+            const key = point.join(',');
+            plannerCoordinates.push(point);
+            currentInputs.add(input);
+            const title = `${label}: ${getPlannerPlaceName(value) || value}`;
+            const iconKey = `${type}:${previewColor}:${index}`;
+            let entry = previewMarkers.get(input);
+            if (!entry) {
+                const tooltip = document.createElement('span');
+                tooltip.textContent = title;
+                const focusInput = () => { setMobileView('planner'); input.focus(); };
+                const marker = L.marker(point, {
+                    icon: createMarkerIcon(type, previewColor, index, true),
+                    title, alt: title, opacity: 0.9, zIndexOffset: 1000,
+                }).bindTooltip(tooltip).on('click', focusInput).on('keydown', event => {
+                    if (!['Enter', ' '].includes(event.originalEvent.key)) return;
+                    L.DomEvent.preventDefault(event.originalEvent);
+                    L.DomEvent.stopPropagation(event.originalEvent);
+                    focusInput();
+                }).addTo(map);
+                entry = { marker, key, iconKey, title };
+                previewMarkers.set(input, entry);
+            }
+            const { marker } = entry;
+            const focused = marker.getElement() === document.activeElement;
+            if (entry.key !== key) marker.setLatLng(point);
+            if (entry.iconKey !== iconKey) marker.setIcon(createMarkerIcon(type, previewColor, index, true));
+            if (entry.title !== title) {
+                const tooltip = document.createElement('span');
+                tooltip.textContent = title;
+                marker.setTooltipContent(tooltip);
+            }
+            marker.options.title = marker.options.alt = title;
+            const element = marker.getElement();
+            if (element) {
+                element.title = title;
+                element.setAttribute('aria-label', title);
+                if (focused) element.focus();
+            }
+            Object.assign(entry, { key, iconKey, title });
         }
     });
+    for (const [input, { marker }] of previewMarkers) {
+        if (currentInputs.has(input)) continue;
+        marker.off();
+        marker.unbindTooltip();
+        map.removeLayer(marker);
+        previewMarkers.delete(input);
+    }
+    routeMap.setPlannerCoordinates(plannerCoordinates);
 }
 
 // ============ Click-to-Add Mode ============
@@ -598,12 +694,14 @@ function setEndpointValue(input, value) {
 }
 
 function setMapPickValue(target, latLng) {
+    let input;
     if (target === 'origin' || target === 'destination') {
-        const input = document.getElementById(target);
+        input = document.getElementById(target);
         setEndpointValue(input, latLng);
     } else if (target === 'waypoint') {
-        addStop(latLng);
+        input = addStop(latLng);
     }
+    if (input) lookupPlaceName(input.value);
 }
 
 function formatLeafletLatLng(latlng) {
@@ -793,6 +891,7 @@ function useMyLocation(field) {
             const latLng = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
             setEndpointValue(input, latLng);
             updatePreviewMarkers();
+            lookupPlaceName(input.value);
             showStatus('Location set');
         },
         (error) => {
@@ -819,9 +918,10 @@ function decodePolyline(encoded) {
             }
 
             const byte = encoded.charCodeAt(index++) - 63;
-            if (!Number.isFinite(byte) || byte < 0) {
+            if (byte < 0 || byte > 0x3f) {
                 throw new Error('Encoded polyline contains an invalid character');
             }
+            if (shift === 30 && (byte & 0x1f) > 3) throw new Error('Encoded polyline value is too large');
 
             result |= (byte & 0x1f) << shift;
             if (byte < 0x20) break;
@@ -832,13 +932,15 @@ function decodePolyline(encoded) {
             }
         }
 
-        return (result & 1) ? ~(result >> 1) : (result >> 1);
+        return (result & 1) ? ~(result >>> 1) : (result >>> 1);
     }
 
     try {
         while (index < encoded.length) {
             lat += decodeValue();
             lng += decodeValue();
+            if (!isValidLatLng({ latitude: lat / 1e5, longitude: lng / 1e5 })) throw new Error('Encoded polyline contains invalid coordinates');
+            if (points.length >= MAX_TRACK_POINTS) throw new Error('Route contains too many track points');
             points.push([lat / 1e5, lng / 1e5]);
         }
     } catch (error) {
@@ -854,14 +956,18 @@ function addStop(value = '') {
     if (document.querySelectorAll('.stop-row').length >= MAX_WAYPOINTS) { showStatus(`You can add up to ${MAX_WAYPOINTS} waypoints.`, true); return; }
     const container = document.getElementById('stopsContainer');
     const stopNumber = container.children.length + 1;
+    const placeNameId = `waypointPlaceName${++lastPlannerPointId}`;
 
     const row = document.createElement('div');
     row.className = 'stop-row';
     row.setAttribute('role', 'listitem');
     row.innerHTML = `
         <span class="stop-number" aria-hidden="true">${stopNumber}</span>
-        <input type="text" class="stop-input" placeholder="Waypoint ${stopNumber}"
-               value="${escapeHtml(value)}" aria-label="Waypoint ${stopNumber}" />
+        <div class="stop-location">
+            <input type="text" class="stop-input" placeholder="Waypoint ${stopNumber}"
+                   value="${escapeHtml(value)}" aria-label="Waypoint ${stopNumber}" />
+            <span id="${placeNameId}" class="location-name" aria-live="polite" hidden></span>
+        </div>
         <div class="stop-row-actions" aria-label="Waypoint ${stopNumber} actions">
             <button type="button" class="stop-action-btn stop-move-btn" data-action="move-stop-up"
                     aria-label="Move waypoint ${stopNumber} up" title="Move waypoint up">
@@ -885,12 +991,44 @@ function addStop(value = '') {
 
     updatePreviewMarkers();
     renumberStops();
+    return row.querySelector('input');
+}
+
+function clearEndpoint(field) {
+    const input = document.getElementById(field);
+    if (!input || !['origin', 'destination'].includes(field)) return;
+    setEndpointValue(input, '');
+    updatePreviewMarkers();
+    saveDraft();
+    input.focus();
+}
+
+function clearPlanner() {
+    cancelRouteRequest();
+    geolocationRequestId++;
+    exitClickMode();
+    cancelMapClickPrompt();
+    plannerPlaceLookups.forEach(lookup => lookup.controller.abort());
+    plannerPlaceLookups.clear();
+    plannerPlaceNames.clear();
+    setEndpointValue(document.getElementById('origin'), '');
+    setEndpointValue(document.getElementById('destination'), '');
+    replaceStops([]);
+    const departure = document.getElementById('departureTime');
+    if (departure) departure.value = '';
+    updatePreviewMarkers();
+    saveDraft();
+    document.getElementById('origin').focus();
+    showStatus('Planner cleared. Saved routes are still available to edit or reuse.');
 }
 
 function removeStop(btn) {
-    btn.closest('.stop-row').remove();
+    const row = btn.closest('.stop-row');
+    const nextInput = row.nextElementSibling?.querySelector('input') || row.previousElementSibling?.querySelector('input') || document.getElementById('destination');
+    row.remove();
     renumberStops();
     updatePreviewMarkers();
+    nextInput.focus();
 }
 
 function moveStop(btn, direction) {
@@ -1068,7 +1206,7 @@ function getReverseGeocodeDisplayName(data) {
     return getHumanPlaceName(data);
 }
 
-async function reverseGeocodeCoordinate(input, apiKey) {
+async function reverseGeocodeCoordinate(input, apiKey, signal) {
     const latLng = parseLatLngInput(input);
     if (!latLng || !isValidLatLng(latLng)) return '';
 
@@ -1077,27 +1215,13 @@ async function reverseGeocodeCoordinate(input, apiKey) {
     url.searchParams.set('key', apiKey);
 
     try {
-        const data = await requestJson(url.toString(), { timeoutMs: REVERSE_GEOCODE_REQUEST_TIMEOUT_MS });
+        const data = await requestJson(url.toString(), { timeoutMs: REVERSE_GEOCODE_REQUEST_TIMEOUT_MS, signal });
         if (data.status && data.status !== 'OK') return '';
         return getReverseGeocodeDisplayName(data);
     } catch (error) {
-        console.warn('Reverse geocoding unavailable:', error.message);
+        if (error.name !== 'AbortError') console.warn('Reverse geocoding unavailable:', error.message);
         return '';
     }
-}
-
-async function resolveRouteEndpointLabel(input, apiKey) {
-    if (!parseLatLngInput(input)) return input;
-    const placeName = await reverseGeocodeCoordinate(input, apiKey);
-    return placeName || input;
-}
-
-async function resolveRouteEndpointLabels(origin, destination, apiKey) {
-    const [originLabel, destinationLabel] = await Promise.all([
-        resolveRouteEndpointLabel(origin, apiKey),
-        resolveRouteEndpointLabel(destination, apiKey)
-    ]);
-    return { originLabel, destinationLabel };
 }
 
 function buildRouteName(originLabel, destinationLabel) {
@@ -1145,7 +1269,7 @@ function scheduleDraftSave() {
 }
 
 function saveDraft() {
-    const draft = { origin: document.getElementById('origin').value, destination: document.getElementById('destination').value, stops: getStops(), travelMode: document.getElementById('travelMode').value, departureTime: document.getElementById('departureTime')?.value || '', labelCoordinates: document.getElementById('labelCoordinates')?.checked || false, fetchElevation: document.getElementById('fetchElevation')?.checked !== false };
+    const draft = { origin: document.getElementById('origin').value, destination: document.getElementById('destination').value, stops: getStops(), travelMode: document.getElementById('travelMode').value, departureTime: document.getElementById('departureTime')?.value || '', labelCoordinates: document.getElementById('labelCoordinates')?.checked || false, fetchElevation: document.getElementById('fetchElevation')?.checked !== false, placeNames: getPlannerPlaceNames() };
     try { localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft)); } catch { /* Completed routes have a separate persistent warning. */ }
 }
 
@@ -1154,6 +1278,7 @@ function loadDraft() {
         const draft = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY));
         const request = normalizeRouteRequest(draft);
         if (!request) return;
+        Object.entries(request.placeNames).forEach(([key, name]) => plannerPlaceNames.set(key, name));
         setEndpointValue(document.getElementById('origin'), request.origin);
         setEndpointValue(document.getElementById('destination'), request.destination);
         replaceStops(request.stops); selectTravelMode(request.travelMode, false);
@@ -1266,7 +1391,7 @@ async function getRoute() {
         return;
     }
 
-    const request = { origin, destination, travelMode, stops: [...stops] };
+    const request = { origin, destination, travelMode, stops: [...stops], placeNames: getPlannerPlaceNames() };
     try { validateRouteRequest(request); }
     catch (error) { showStatus(error.message, true); return; }
     const departure = document.getElementById('departureTime')?.value;
@@ -1319,6 +1444,7 @@ async function getRoute() {
         };
         routes.push(route);
         routeMap.add(route);
+        updateRoutePlaceNames(route);
         updateRouteMapStyles();
         setMobileView('map');
         routeMap.fit(route.id);
@@ -1331,21 +1457,12 @@ async function getRoute() {
         exitClickMode();
 
         // Pick a random color for the next route
-        completedPlannerPoints = JSON.stringify([origin, destination, ...stops]);
-        completedPlannerRouteId = route.id;
         selectRandomColor();
-        clearPreviewMarkers();
+        updatePreviewMarkers();
 
         // Optional labels never delay drawing or exporting the route.
         if (document.getElementById('labelCoordinates')?.checked) {
-            resolveRouteEndpointLabels(origin, destination, apiKey).then(labels => {
-                if (!routes.includes(route)) return;
-                route.origin = labels.originLabel;
-                route.destination = labels.destinationLabel;
-                if (!route.renamed) route.name = buildRouteName(route.origin, route.destination);
-                routeMap.updateLabels(route.id);
-                renderRoutesList(); saveToStorage();
-            });
+            [origin, ...stops, destination].forEach(value => lookupPlaceName(value, apiKey));
         }
         enrichRouteElevations(route);
     } catch (error) {
@@ -1469,6 +1586,7 @@ function undoDelete() {
 function loadRouteIntoPlanner(id) {
     const route = routes.find(item => item.id === id);
     if (!route?.request) return;
+    Object.entries(route.request.placeNames).forEach(([key, name]) => plannerPlaceNames.set(key, name));
     setEndpointValue(document.getElementById('origin'), route.request.origin);
     setEndpointValue(document.getElementById('destination'), route.request.destination);
     replaceStops(route.request.stops); selectTravelMode(route.request.travelMode);
@@ -1850,17 +1968,20 @@ function updateInputValidation(input) {
 // Update preview markers on input change (debounced for performance)
 const debouncedPreviewUpdate = debounce(updatePreviewMarkers, 150);
 document.getElementById('origin').addEventListener('input', function () {
+    updatePlannerPlaceNames();
     debouncedPreviewUpdate();
     updateInputValidation(this);
     scheduleDraftSave();
 });
 document.getElementById('destination').addEventListener('input', function () {
+    updatePlannerPlaceNames();
     debouncedPreviewUpdate();
     updateInputValidation(this);
     scheduleDraftSave();
 });
 document.getElementById('stopsContainer').addEventListener('input', function (e) {
     if (!e.target.matches('.stop-input')) return;
+    updatePlannerPlaceNames();
     debouncedPreviewUpdate();
     updateInputValidation(e.target);
     updateWaypointHint();
@@ -1969,6 +2090,7 @@ function selectColor(idx, focusSelected = false, closePalette = false) {
     }
 
     updateColorSelectionUi(focusSelected);
+    updatePreviewMarkers();
     if (closePalette) closeColorPalette(true);
 }
 
@@ -2073,6 +2195,8 @@ document.addEventListener('click', function (e) {
     const routeId = actionEl.dataset.routeId ? Number(actionEl.dataset.routeId) : null;
 
     switch (action) {
+        case 'clear-planner': clearPlanner(); break;
+        case 'clear-endpoint': clearEndpoint(actionEl.dataset.field); break;
         case 'browse-import': document.getElementById('importFileInput').click(); break;
         case 'open-api-key': openApiKeyModal(); break;
         case 'download-all': downloadAllRoutes(); break;
@@ -2206,13 +2330,13 @@ export {
     handleSingleImportFile,
     isValidLatLng,
     looksLikeCoordinatePair,
+    lookupPlaceName,
     moveEndpoint,
     moveStop,
     openApiKeyModal,
     openFilenameModal,
     parseLocation,
     resetColorPool,
-    resolveRouteEndpointLabel,
     restoreRoute,
     sanitizeColor,
     saveApiKey,

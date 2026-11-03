@@ -89,6 +89,20 @@ test('keeps focus on route actions, renames, and restores a deleted route', asyn
     await page.keyboard.press('Space');
     await expect(page.locator('[data-action="toggle-visibility"]')).toBeFocused();
     await page.locator('[data-action="rename-route"]').click();
+    await page.locator('#renameInput').focus();
+    const spacing = await page.locator('#renameInput').evaluate(input => {
+        const bounds = input.getBoundingClientRect();
+        const label = document.querySelector('label[for="renameInput"]').getBoundingClientRect();
+        const actions = document.querySelector('#renameModal .btn-row').getBoundingClientRect();
+        const style = getComputedStyle(input);
+        return {
+            above: bounds.top - label.bottom,
+            below: actions.top - bounds.bottom,
+            outline: parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset),
+        };
+    });
+    expect(spacing.above).toBeGreaterThanOrEqual(spacing.outline);
+    expect(spacing.below).toBeGreaterThan(spacing.outline);
     await page.locator('#renameInput').fill('My renamed trail');
     await page.locator('#confirmRenameBtn').click();
     await expect(page.locator('.route-item-title')).toHaveText('My renamed trail');
@@ -298,16 +312,290 @@ test('draws a route before labels resolve and updates named map endpoints', asyn
     await expect(page.locator('.route-item-meta')).not.toContainText('adding elevation');
     release();
     await expect(page.locator('.route-item-title')).toHaveText('Start town → End town');
-    const start = page.getByRole('button', { name: 'Start: Start town', exact: true });
-    await expect(start).toHaveAttribute('title', 'Start: Start town');
+    const start = page.getByRole('button', { name: 'Origin: Start town', exact: true });
+    await expect(start).toHaveAttribute('title', 'Origin: Start town');
     await start.hover();
-    await expect(page.locator('.leaflet-tooltip')).toHaveText('Start: Start town');
-    await expect(page.getByRole('button', { name: 'End: End town', exact: true })).toHaveAttribute('title', 'End: End town');
+    await expect(page.locator('.leaflet-tooltip')).toHaveText('Origin: Start town');
+    await expect(page.getByRole('button', { name: 'Destination: End town', exact: true })).toHaveAttribute('title', 'Destination: End town');
     await page.locator('[data-action="remove-route"]').click();
     await expect(page.locator('.route-item')).toHaveCount(0);
     await page.locator('#origin').dispatchEvent('input');
     await expect(page.locator('.leaflet-marker-icon')).toHaveCount(2);
 });
+
+test('names picked points, retains planner pins, clears points, and reuses a saved route', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-action="open-api-key"]').click();
+    await page.locator('#apiKeyInput').fill('synthetic-test-key');
+    await page.locator('#saveApiKeyBtn').click();
+    await page.locator('#fetchElevation').uncheck();
+    let lookups = 0, request;
+    await page.route('https://maps.googleapis.com/**', route => route.fulfill({ json: { status: 'OK', results: [{ formatted_address: `Picked place ${++lookups}` }] } }));
+    await page.route('https://routes.googleapis.com/**', route => {
+        request = route.request().postDataJSON();
+        return route.fulfill({ json: { routes: [{ polyline: { encodedPolyline: '_p~iF~ps|U_ulLnnqC_mqNvxq`@' } }] } });
+    });
+    let picked = 0;
+    for (const [button, label, x, y] of [
+        ['originMapPickBtn', '#originPlaceName', 240, 180],
+        ['destinationMapPickBtn', '#destinationPlaceName', 480, 350],
+        ['pickWaypointMapBtn', '.stop-location .location-name', 380, 240],
+    ]) {
+        await page.locator(`#${button}`).click();
+        await page.locator('#map').click({ position: { x, y } });
+        await expect(page.locator(label)).toHaveText(`Picked place ${++picked}`);
+    }
+    await page.keyboard.press('Escape');
+    const origin = await page.locator('#origin').inputValue();
+    const destination = await page.locator('#destination').inputValue();
+    const waypoint = await page.locator('.stop-input').inputValue();
+    await expect(page.getByRole('button', { name: 'Origin: Picked place 1', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Waypoint 1: Picked place 3', exact: true })).toBeVisible();
+    await page.locator('#getRouteBtn').click();
+    await expect(page.locator('.route-item-title')).toHaveText('Picked place 1 → Picked place 2');
+    const coordinates = value => { const [latitude, longitude] = value.split(',').map(Number); return { location: { latLng: { latitude, longitude } } }; };
+    expect(request.origin).toEqual(coordinates(origin));
+    expect(request.destination).toEqual(coordinates(destination));
+    expect(request.intermediates).toEqual([coordinates(waypoint)]);
+    await expect(page.locator('.planner-marker')).toHaveCount(3);
+    await page.reload();
+    await expect(page.locator('#originPlaceName')).toHaveText('Picked place 1');
+    await expect(page.locator('.planner-marker')).toHaveCount(3);
+    await page.getByRole('button', { name: 'Clear origin', exact: true }).click();
+    await expect(page.locator('#origin')).toHaveValue('');
+    await expect(page.locator('#originPlaceName')).not.toBeVisible();
+    await expect(page.locator('#destination')).toHaveValue(destination);
+    await expect(page.locator('.stop-input')).toHaveValue(waypoint);
+    await expect(page.locator('.planner-marker')).toHaveCount(2);
+    await page.getByRole('button', { name: 'Clear planner', exact: true }).click();
+    await expect(page.locator('#destination')).toHaveValue('');
+    await expect(page.locator('.stop-input')).toHaveCount(0);
+    await expect(page.locator('.planner-marker')).toHaveCount(0);
+    await expect(page.locator('.route-item')).toHaveCount(1);
+    await page.reload();
+    await expect(page.locator('#origin')).toHaveValue('');
+    await expect(page.locator('.planner-marker')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Edit / reuse', exact: true }).click();
+    await expect(page.locator('#origin')).toHaveValue(origin);
+    await expect(page.locator('.stop-input')).toHaveValue(waypoint);
+    await expect(page.locator('#destinationPlaceName')).toHaveText('Picked place 2');
+    await expect(page.locator('.planner-marker')).toHaveCount(3);
+    expect(lookups).toBe(3);
+});
+
+test('does not restore cleared planner points when a place lookup finishes late', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-action="open-api-key"]').click();
+    await page.locator('#apiKeyInput').fill('synthetic-test-key');
+    await page.locator('#saveApiKeyBtn').click();
+    let release, started = false;
+    const waiting = new Promise(resolve => { release = resolve; });
+    await page.route('https://maps.googleapis.com/**', async route => {
+        started = true;
+        await waiting;
+        await route.fulfill({ json: { status: 'OK', results: [{ formatted_address: 'Old place' }] } });
+    });
+    await page.locator('#originMapPickBtn').click();
+    await page.locator('#map').click({ position: { x: 250, y: 200 } });
+    await expect.poll(() => started).toBe(true);
+    await page.getByRole('button', { name: 'Clear planner', exact: true }).click();
+    release();
+    await page.locator('#origin').fill('New origin');
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('route2gpx_draft')).origin)).toBe('New origin');
+    await expect(page.locator('#originPlaceName')).not.toBeVisible();
+    await expect(page.locator('.planner-marker')).toHaveCount(0);
+    await page.reload();
+    await expect(page.locator('#origin')).toHaveValue('New origin');
+});
+
+test('names GPS points as plain text and retains exact coordinates', async ({ page }) => {
+    await mockGeolocation(page);
+    await page.locator('[data-action="open-api-key"]').click();
+    await page.locator('#apiKeyInput').fill('synthetic-test-key');
+    await page.locator('#saveApiKeyBtn').click();
+    const name = '<img src=x onerror=alert(1)> Trailhead';
+    await page.route('https://maps.googleapis.com/**', route => route.fulfill({ json: { status: 'OK', results: [{ formatted_address: name }] } }));
+    await page.locator('[data-gps-field="origin"]').click();
+    await page.evaluate(() => window.pendingPosition.success({ coords: { latitude: 38.5, longitude: -120.2 } }));
+    await expect(page.locator('#originPlaceName')).toHaveText(name);
+    await expect(page.locator('#origin')).toHaveValue('38.500000, -120.200000');
+    await expect(page.getByRole('button', { name: `Origin: ${name}`, exact: true })).toBeVisible();
+    await expect(page.locator('img[src="x"]')).toHaveCount(0);
+});
+
+test('clearing the planner cancels a pending route calculation', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-action="open-api-key"]').click();
+    await page.locator('#apiKeyInput').fill('synthetic-test-key');
+    await page.locator('#saveApiKeyBtn').click();
+    await page.locator('#origin').fill('Seattle');
+    await page.locator('#destination').fill('Portland');
+    let release, started = false;
+    const waiting = new Promise(resolve => { release = resolve; });
+    await page.route('https://routes.googleapis.com/**', async route => {
+        started = true;
+        await waiting;
+        await route.fulfill({ json: { routes: [{ polyline: { encodedPolyline: '_p~iF~ps|U_ulLnnqC_mqNvxq`@' } }] } });
+    });
+    await page.locator('#getRouteBtn').click();
+    await expect.poll(() => started).toBe(true);
+    await page.getByRole('button', { name: 'Clear planner', exact: true }).click();
+    release();
+    await expect(page.locator('#getRouteBtn')).toBeEnabled();
+    await expect(page.locator('#origin')).toHaveValue('');
+    await expect(page.locator('#destination')).toHaveValue('');
+    await expect(page.locator('.route-item')).toHaveCount(0);
+});
+
+test('keeps typed-coordinate geocoding off when saving a key and reusing a route', async ({ page }) => {
+    await page.goto('/');
+    let lookups = 0;
+    await page.route('https://maps.googleapis.com/**', route => {
+        lookups++;
+        return route.fulfill({ json: { status: 'OK', results: [{ formatted_address: 'Unrequested place' }] } });
+    });
+    await page.route('https://routes.googleapis.com/**', route => route.fulfill({ json: { routes: [{ polyline: { encodedPolyline: '_p~iF~ps|U_ulLnnqC' } }] } }));
+    await page.locator('#origin').fill('38.5, -120.2');
+    await page.locator('#destination').fill('40.7, -120.95');
+    await page.locator('[data-action="open-api-key"]').click();
+    await page.locator('#apiKeyInput').fill('synthetic-test-key');
+    await page.locator('#saveApiKeyBtn').click();
+    await page.locator('#fetchElevation').uncheck();
+    await expect(page.locator('#labelCoordinates')).not.toBeChecked();
+    await page.locator('#getRouteBtn').click();
+    await expect(page.locator('.route-item')).toHaveCount(1);
+    expect(lookups).toBe(0);
+    await page.getByRole('button', { name: 'Clear planner', exact: true }).click();
+    await page.getByRole('button', { name: 'Edit / reuse', exact: true }).click();
+    await expect(page.locator('#origin')).toBeFocused();
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('route2gpx_draft')).origin)).toBe('38.5, -120.2');
+    expect(lookups).toBe(0);
+});
+
+test('invalidates typed-coordinate names when the planner is reset', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-action="open-api-key"]').click();
+    await page.locator('#apiKeyInput').fill('synthetic-test-key');
+    await page.locator('#saveApiKeyBtn').click();
+    await page.locator('#fetchElevation').uncheck();
+    await page.locator('#labelCoordinates').check();
+    await page.locator('#origin').fill('38.5, -120.2');
+    await page.locator('#destination').fill('40.7, -120.95');
+    let release, started = 0, delivered = 0;
+    const waiting = new Promise(resolve => { release = resolve; });
+    await page.route('https://maps.googleapis.com/**', async route => {
+        started++;
+        await waiting;
+        await route.fulfill({ json: { status: 'OK', results: [{ formatted_address: 'Cleared name' }] } });
+        delivered++;
+    });
+    await page.route('https://routes.googleapis.com/**', route => route.fulfill({ json: { routes: [{ polyline: { encodedPolyline: '_p~iF~ps|U_ulLnnqC' } }] } }));
+    await page.locator('#getRouteBtn').click();
+    await expect.poll(() => started).toBe(2);
+    await page.getByRole('button', { name: 'Clear planner', exact: true }).click();
+    release();
+    await expect.poll(() => delivered).toBe(2);
+    await page.locator('#origin').fill('38.5, -120.2');
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('route2gpx_draft')).origin)).toBe('38.5, -120.2');
+    await expect(page.locator('#originPlaceName')).not.toBeVisible();
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('route2gpx_draft')).placeNames)).toEqual({});
+    await expect(page.locator('.route-item')).toHaveCount(1);
+});
+
+test('keeps a planner pin focused when its place name arrives', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-action="open-api-key"]').click();
+    await page.locator('#apiKeyInput').fill('synthetic-test-key');
+    await page.locator('#saveApiKeyBtn').click();
+    let release, started = false;
+    const waiting = new Promise(resolve => { release = resolve; });
+    await page.route('https://maps.googleapis.com/**', async route => {
+        started = true;
+        await waiting;
+        await route.fulfill({ json: { status: 'OK', results: [{ formatted_address: 'Named trailhead' }] } });
+    });
+    await page.locator('#originMapPickBtn').click();
+    await page.locator('#map').click({ position: { x: 250, y: 200 } });
+    await expect.poll(() => started).toBe(true);
+    const pin = page.locator('.planner-marker');
+    const original = await pin.elementHandle();
+    await pin.focus();
+    release();
+    await expect(pin).toHaveAttribute('aria-label', 'Origin: Named trailhead');
+    await expect(pin).toBeFocused();
+    expect(await original.evaluate(element => element.isConnected)).toBe(true);
+    for (const key of ['Enter', 'Space']) {
+        await pin.focus();
+        await page.keyboard.press(key);
+        await expect(page.locator('#origin')).toBeFocused();
+    }
+});
+
+test('keeps waypoint pin numbers and keyboard focus aligned with input rows', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#addStopBtn').click();
+    await page.locator('#addStopBtn').click();
+    await page.locator('.stop-input').nth(1).fill('38.5, -120.2');
+    await expect(page.getByRole('button', { name: 'Waypoint 2: 38.5, -120.2', exact: true })).toBeVisible();
+    const remove = page.getByRole('button', { name: 'Remove waypoint 1', exact: true });
+    await remove.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.stop-input')).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Waypoint 1: 38.5, -120.2', exact: true })).toBeVisible();
+    await remove.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#destination')).toBeFocused();
+    await expect(page.locator('.planner-marker')).toHaveCount(0);
+});
+
+for (const [reason, encodedPolyline] of [
+    ['latitude above 90', '_mljP???'],
+    ['positive delta with its high bit set', '}~~~~~B???'],
+    ['negative delta with its high bit set', '~~~~~~B???'],
+]) {
+    test(`rejects invalid route geometry before saving or drawing: ${reason}`, async ({ page }) => {
+        await page.goto('/');
+        await page.locator('[data-action="open-api-key"]').click();
+        await page.locator('#apiKeyInput').fill('synthetic-test-key');
+        await page.locator('#saveApiKeyBtn').click();
+        await page.locator('#origin').fill('Origin');
+        await page.locator('#destination').fill('Destination');
+        await page.route('https://routes.googleapis.com/**', route => route.fulfill({ json: { routes: [{ polyline: { encodedPolyline } }] } }));
+        await page.locator('#getRouteBtn').click();
+        await expect(page.locator('#status')).toContainText('Route geometry was missing or invalid');
+        await expect(page.locator('#getRouteBtn')).toBeEnabled();
+        await expect(page.locator('.route-item')).toHaveCount(0);
+        await expect(page.locator('.leaflet-overlay-pane path')).toHaveCount(0);
+        expect(await page.evaluate(() => localStorage.getItem('route2gpx_routes'))).toBeNull();
+    });
+}
+
+for (const width of [1440, 390, 320]) {
+    test(`keeps planner tooltips inside the sidebar at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto('/');
+        const sidebar = page.locator('.sidebar');
+        const expectNoHorizontalScroll = async () => {
+            const sizes = await sidebar.evaluate(element => {
+                element.scrollLeft = 1000;
+                return { width: element.clientWidth, scrollWidth: element.scrollWidth, scrollLeft: element.scrollLeft };
+            });
+            expect(sizes.scrollWidth).toBe(sizes.width);
+            expect(sizes.scrollLeft).toBe(0);
+        };
+        await expectNoHorizontalScroll();
+        for (const id of ['origin-help', 'waypoints-help', 'destination-help']) {
+            await page.locator(`[aria-describedby="${id}"]`).focus();
+            const tooltip = page.locator(`#${id}`);
+            await expect(tooltip).toBeVisible();
+            const bounds = await sidebar.boundingBox();
+            const tip = await tooltip.boundingBox();
+            expect(tip.x).toBeGreaterThanOrEqual(bounds.x);
+            expect(tip.x + tip.width).toBeLessThanOrEqual(bounds.x + bounds.width);
+            await expectNoHorizontalScroll();
+        }
+    });
+}
 
 for (const viewport of [{ width: 320, height: 568 }, { width: 667, height: 375 }]) {
     test(`keeps dialogs and map controls reachable at ${viewport.width}×${viewport.height}`, async ({ page }) => {

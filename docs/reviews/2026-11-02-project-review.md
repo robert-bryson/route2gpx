@@ -1,6 +1,6 @@
 # Project review — November 2, 2026
 
-This is a historical report. Source line numbers and baseline measurements below refer to the earlier implementation. Read the [current review](2026-11-02-architecture-hardening.md) for current fixes and verification. Use [README.md](../../README.md) for current instructions.
+This is a historical report. Source line numbers and baseline measurements below refer to the earlier implementation. Read the [current review](2026-11-02-planner-review.md) for current fixes and verification. Use [README.md](../../README.md) for current instructions.
 
 Reviewed commit `25009f9` across the browser app, Python CLI, tests, build, CI, and Terraform. The best improvements are preserving imported data accurately, making failures recoverable, and improving the planner on small screens. The existing static architecture and small bundle are useful foundations.
 

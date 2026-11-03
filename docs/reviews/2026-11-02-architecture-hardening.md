@@ -1,5 +1,7 @@
 # Architecture hardening: November 2, 2026
 
+Historical report. Its measurements apply to that review's working tree. See the [current review](2026-11-02-planner-review.md) for later fixes and test results.
+
 The commit baseline is `f4c77eb`. The review includes the pending refactor and checks the rest of the project for related defects. README.md and the architecture guide define expected behavior. Standards and behavior received separate reviews.
 
 The refactor improves module boundaries and test coverage. Its green test suite did not establish correct XML field selection, dialog focus recovery, or API-key cleanup. New regressions exposed these failures before the fixes below. The original memory claims also exceeded what the parser implements.

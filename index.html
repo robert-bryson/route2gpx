@@ -69,7 +69,7 @@
             <div id="helpContent" class="help-content" role="region" aria-labelledby="help-heading">
                 <h3 id="help-heading"><span class="icon-label"><span class="ui-icon" data-icon="lock"
                             data-icon-class="icon-sm" aria-hidden="true"></span> Privacy First</span></h3>
-                <p>Files are processed locally and saved in this browser. Route calculations send your locations and API key directly to Google. Optional place labels also use Google. Elevation coordinates go through this site's proxy to Open Topo Data, and map tiles come from CARTO. Keep your key for this tab or choose to remember it.</p>
+                <p>Files are processed locally and saved in this browser. Route calculations send your locations and API key directly to Google. Map and GPS points also use Google to look up place names when a key is available. Elevation coordinates go through this site's proxy to Open Topo Data, and map tiles come from CARTO. Keep your key for this tab or choose to remember it.</p>
 
                 <h3><span class="icon-label"><span class="ui-icon" data-icon="keyboard" data-icon-class="icon-sm"
                             aria-hidden="true"></span> Keyboard Shortcuts</span></h3>
@@ -93,6 +93,10 @@
             </div>
 
             <section id="main-form" aria-label="Route planner">
+                <div class="planner-toolbar">
+                    <button type="button" class="btn-outline btn-small" data-action="clear-planner"
+                        title="Clear route points and planner pins; keep saved routes">Clear planner</button>
+                </div>
                 <div class="route-planner-card">
                     <div class="form-group route-field-row">
                         <span class="route-field-marker origin-marker" aria-hidden="true"></span>
@@ -136,7 +140,12 @@
                                     title="Move origin after next route point">
                                     <span class="ui-icon" data-icon="chevron-down" aria-hidden="true"></span>
                                 </button>
+                                <button type="button" class="btn-icon btn-outline" data-action="clear-endpoint"
+                                    data-field="origin" aria-label="Clear origin" title="Clear origin">
+                                    <span class="ui-icon" data-icon="x" aria-hidden="true"></span>
+                                </button>
                             </div>
+                            <span id="originPlaceName" class="location-name" aria-live="polite" hidden></span>
                         </div>
                     </div>
 
@@ -212,7 +221,12 @@
                                     title="Move destination before previous route point">
                                     <span class="ui-icon" data-icon="chevron-up" aria-hidden="true"></span>
                                 </button>
+                                <button type="button" class="btn-icon btn-outline" data-action="clear-endpoint"
+                                    data-field="destination" aria-label="Clear destination" title="Clear destination">
+                                    <span class="ui-icon" data-icon="x" aria-hidden="true"></span>
+                                </button>
                             </div>
+                            <span id="destinationPlaceName" class="location-name" aria-live="polite" hidden></span>
                         </div>
                     </div>
                 </div>
@@ -262,7 +276,7 @@
 
                 <div class="route-options">
                     <label><input type="checkbox" id="fetchElevation" checked> Add elevation (up to 1,000 sampled points)</label>
-                    <label><input type="checkbox" id="labelCoordinates"> Look up place labels for coordinates (Google Geocoding)</label>
+                    <label><input type="checkbox" id="labelCoordinates"> Also look up names for typed coordinates (Google Geocoding)</label>
                     <div id="departureTimeGroup" class="form-group" hidden>
                         <label for="departureTime">Transit departure</label>
                         <input type="datetime-local" id="departureTime">
@@ -395,7 +409,7 @@
 
             <p>
                 To calculate routes, you need a <strong>Google Routes API key</strong>.
-                Enable the Routes API and billing in your Google Cloud project. Imports and GPX exports work without a key.
+                Enable the Routes API and billing in your Google Cloud project. Enable the Geocoding API for place names on map and GPS points. Imports and GPX exports work without a key.
             </p>
 
             <div class="privacy-note">
@@ -458,8 +472,10 @@
     <div class="modal-overlay" id="renameModal" role="dialog" aria-modal="true" aria-labelledby="rename-title" tabindex="-1">
         <div class="modal">
             <h2 id="rename-title">Rename route</h2>
-            <label for="renameInput">Route name</label>
-            <input type="text" id="renameInput" maxlength="200" autocomplete="off">
+            <div class="form-group">
+                <label for="renameInput">Route name</label>
+                <input type="text" id="renameInput" maxlength="200" autocomplete="off">
+            </div>
             <div class="btn-row">
                 <button type="button" class="btn-outline" id="cancelRenameBtn">Cancel</button>
                 <button type="button" id="confirmRenameBtn">Save name</button>

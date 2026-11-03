@@ -11,6 +11,15 @@ const endpointLabels = route => [`Start: ${route.origin}`, `End: ${route.destina
  */
 export function createRouteMap({ map, leaflet, markerIcon, popupContent, onHighlight = () => {} }) {
     const layers = new Map();
+    let plannerCoordinates = new Set();
+
+    function syncEndpointMarkers(entry) {
+        entry.markers.forEach((marker, index) => {
+            const point = index === 0 ? entry.route.coordinates[0] : entry.route.coordinates.at(-1);
+            if (entry.visible && !plannerCoordinates.has(point.join(','))) marker.addTo(map);
+            else { marker.closeTooltip(); map.removeLayer(marker); }
+        });
+    }
 
     function style(entry) {
         entry.line.setStyle({
@@ -61,7 +70,8 @@ export function createRouteMap({ map, leaflet, markerIcon, popupContent, onHighl
         entry.visible = visible;
         const members = [entry.line, ...entry.markers];
         if (visible) {
-            members.forEach(layer => layer.addTo(map));
+            entry.line.addTo(map);
+            syncEndpointMarkers(entry);
             updateLabels(id);
         } else {
             highlight(id, false);
@@ -97,10 +107,14 @@ export function createRouteMap({ map, leaflet, markerIcon, popupContent, onHighl
                 leaflet.DomEvent.preventDefault(event);
                 line.openPopup(event.latlng);
             });
-            if (entry.visible) [line, ...markers].forEach(layer => layer.addTo(map));
+            if (entry.visible) { line.addTo(map); syncEndpointMarkers(entry); }
             updateLabels(route.id);
         },
         updateLabels,
+        setPlannerCoordinates(coordinates) {
+            plannerCoordinates = new Set(coordinates.map(point => point.join(',')));
+            for (const entry of layers.values()) syncEndpointMarkers(entry);
+        },
         setVisible,
         highlight,
         updateStyles(newestId) {

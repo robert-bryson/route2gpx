@@ -157,6 +157,7 @@ label {
 }
 
 .field-label-row {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 5px;
@@ -355,6 +356,29 @@ button .icon,
     display: flex;
     flex-direction: column;
     gap: 5px;
+}
+
+.planner-toolbar {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.location-name {
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: #bcc9e2;
+    overflow-wrap: anywhere;
+}
+
+.stop-location {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.stop-location input {
+    width: 100%;
 }
 
 .map-pick-btn.active,
@@ -1265,7 +1289,6 @@ hr {
 
 /* Info tooltip */
 .info-wrapper {
-    position: relative;
     display: inline-flex;
 }
 
@@ -1309,21 +1332,12 @@ hr {
     font-weight: normal;
     line-height: 1.4;
     width: 220px;
+    max-width: 100%;
     text-align: left;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     border: 1px solid #333;
     z-index: 1000;
     transition: opacity 0.2s, visibility 0.2s;
-}
-
-.tooltip-text::after {
-    content: '';
-    position: absolute;
-    bottom: 100%;
-    left: 6px;
-    border-width: 6px;
-    border-style: solid;
-    border-color: transparent transparent #333 transparent;
 }
 
 .info-wrapper:hover .tooltip-text,
@@ -1678,7 +1692,7 @@ hr {
 
 .route-field-main .input-with-btn {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 38px 38px;
+    grid-template-columns: minmax(0, 1fr) repeat(3, 38px);
     justify-content: end;
 }
 
@@ -1831,7 +1845,7 @@ hr {
 
     .mobile-view-toggle button { flex: 1; min-height: 44px; background: #0f3460; color: #c6d0e4; }
     .mobile-view-toggle button[aria-pressed="true"] { background: #00d4ff; color: #16213e; }
-    .route-field-main .input-with-btn { grid-template-columns: minmax(0, 1fr) 44px 44px; }
+    .route-field-main .input-with-btn { grid-template-columns: minmax(0, 1fr) repeat(3, 44px); }
     input[type="text"], input[type="password"], input[type="datetime-local"] { font-size: 16px; }
     .route-item-actions button { min-height: 44px; }
 

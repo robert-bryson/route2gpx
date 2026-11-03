@@ -4,7 +4,7 @@ import { describe, test, expect, vi, beforeAll, beforeEach, afterEach } from 'vi
 import JSZip from 'jszip';
 import * as pako from 'pako';
 import { generateGPX, escapeXml, sanitizeFilename } from '../gpx.js';
-import { haversineDistance } from '../track-data.js';
+import { haversineDistance, MAX_TRACK_POINTS } from '../track-data.js';
 import { escapeHtml, formatDuration } from '../route-list.js';
 import { getModeIconName, getModeIconSvg } from '../icons.js';
 let appModule;
@@ -58,6 +58,7 @@ beforeAll(async () => {
     _icon: null,
     options: {},
     getElement: vi.fn(() => null),
+    setLatLng: vi.fn(),
     setIcon: vi.fn(),
     closePopup: vi.fn(),
     closeTooltip: vi.fn(),
@@ -110,7 +111,7 @@ beforeAll(async () => {
   // Build minimal DOM with all the element IDs app.js expects
   const ids = [
     'app',
-    'map', 'origin', 'destination', 'routesList', 'addStopBtn', 'reverseRouteBtn',
+    'map', 'origin', 'destination', 'originPlaceName', 'destinationPlaceName', 'routesList', 'addStopBtn', 'reverseRouteBtn',
     'colorSwatch', 'unitKm', 'unitMi', 'getRouteBtn', 'downloadAllBtn', 'clearAllBtn',
     'apiKeyMapBtn', 'clickModeBtn', 'locateMeBtn', 'closeModalBtn', 'saveApiKeyBtn',
     'colorOptions', 'routeColor', 'colorDropdown', 'stopsContainer', 'apiKeyStatus', 'rememberApiKey',
@@ -242,6 +243,27 @@ describe('decodePolyline', () => {
     } finally {
       consoleWarn.mockRestore();
     }
+  });
+
+  test.each(['\u007f?', '???\u007f?', '_mljP???', '???_qvoa@', '______C?', '}~~~~~B???', '~~~~~~B???'])('rejects invalid characters, coordinates, and overflowing values: %j', encoded => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(appModule.decodePolyline(encoded)).toEqual([]);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  test('accepts both coordinate range boundaries', () => {
+    expect(appModule.decodePolyline('_cidP_gsia@~fsia@~ngtcA')).toEqual([[90, 180], [-90, -180]]);
+  });
+
+  test('rejects an API route above the shared point limit', () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(appModule.decodePolyline('??'.repeat(MAX_TRACK_POINTS + 1))).toEqual([]);
+      expect(warning).toHaveBeenCalledWith('Invalid encoded polyline:', expect.stringContaining('too many track points'));
+    } finally { warning.mockRestore(); }
   });
 });
 
@@ -795,14 +817,14 @@ describe('route label helpers', () => {
     }));
 
     try {
-      await expect(appModule.resolveRouteEndpointLabel('38.1520, -107.7610', 'test-key')).resolves.toBe('Ridgway, CO 81432, USA');
+      await expect(appModule.lookupPlaceName('38.1520, -107.7610', 'test-key')).resolves.toBe('Ridgway, CO 81432, USA');
       expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining('maps.googleapis.com/maps/api/geocode/json'), expect.any(Object));
     } finally {
       globalThis.fetch = originalFetch;
     }
   });
 
-  test('keeps coordinate endpoint labels when reverse geocoding is denied', async () => {
+  test('returns no replacement label when reverse geocoding is denied', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(() => Promise.resolve({
       ok: true,
@@ -810,10 +832,272 @@ describe('route label helpers', () => {
     }));
 
     try {
-      await expect(appModule.resolveRouteEndpointLabel('38.1520, -107.7610', 'test-key')).resolves.toBe('38.1520, -107.7610');
+      await expect(appModule.lookupPlaceName('38.1530, -107.7620', 'test-key')).resolves.toBe('');
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe('planner points and place names', () => {
+  function action(name, field) {
+    const button = document.createElement('button');
+    button.dataset.action = name;
+    if (field) button.dataset.field = field;
+    document.body.appendChild(button);
+    button.click();
+    button.remove();
+  }
+
+  function pick(target, lat, lng) {
+    appModule.enterClickMode(target);
+    mapEventHandlers.click({ latlng: { lat, lng } });
+  }
+
+  const response = name => ({ ok: true, json: async () => ({ status: 'OK', results: [{ formatted_address: name }] }) });
+
+  beforeEach(() => {
+    action('clear-planner');
+    sessionStorage.setItem('route2gpx_apiKey_session', 'test-key');
+    const elevation = document.createElement('input');
+    elevation.id = 'fetchElevation';
+    elevation.type = 'checkbox';
+    document.body.appendChild(elevation);
+  });
+
+  afterEach(() => {
+    action('clear-planner');
+    document.getElementById('fetchElevation').remove();
+    sessionStorage.removeItem('route2gpx_apiKey_session');
+    vi.restoreAllMocks();
+  });
+
+  test('deduplicates picked locations and saves late names with a reusable route', async () => {
+    const labels = document.createElement('input');
+    labels.type = 'checkbox';
+    labels.id = 'labelCoordinates';
+    labels.checked = true;
+    document.body.appendChild(labels);
+    const pending = [];
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      if (String(url).includes('computeRoutes')) return Promise.resolve({ ok: true, json: async () => ({ routes: [{ polyline: { encodedPolyline: '_p~iF~ps|U_ulLnnqC_mqNvxq`@' } }] }) });
+      if (String(url).includes('/geocode/')) return new Promise(resolve => pending.push(resolve));
+      return Promise.resolve({ ok: true, json: async () => ({ status: 'OK', results: [] }) });
+    });
+    pick('origin', 11, 22);
+    pick('destination', 11, 22);
+    pick('waypoint', 33, 44);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await appModule.getRoute();
+    const row = document.querySelector('.route-item:last-child');
+    const edit = row.dataset.routeId;
+    pending[0](response('Shared trailhead'));
+    pending[1](response('Scenic waypoint'));
+    await vi.waitFor(() => expect(document.querySelector(`.route-item[data-route-id="${edit}"] .route-item-title`).textContent).toBe('Shared trailhead → Shared trailhead'));
+    expect(document.getElementById('origin').value).toBe('11.000000, 22.000000');
+    expect(document.querySelector('.stop-location .location-name').textContent).toBe('Scenic waypoint');
+    action('clear-endpoint', 'origin');
+    expect(document.getElementById('origin').value).toBe('');
+    expect(document.getElementById('originPlaceName').hidden).toBe(true);
+    expect(document.getElementById('destination').value).toBe('11.000000, 22.000000');
+    action('clear-planner');
+    expect(appModule.getStops()).toEqual([]);
+    expect(JSON.parse(localStorage.getItem('route2gpx_draft')).placeNames).toEqual({});
+    document.querySelector(`[data-action="edit-route"][data-route-id="${edit}"]`).click();
+    expect(document.getElementById('originPlaceName').textContent).toBe('Shared trailhead');
+    expect(document.querySelector('.stop-location .location-name').textContent).toBe('Scenic waypoint');
+    document.getElementById('reverseRouteBtn').click();
+    expect(JSON.parse(localStorage.getItem('route2gpx_draft')).placeNames).toEqual({ '11,22': 'Shared trailhead', '33,44': 'Scenic waypoint' });
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes('/geocode/'))).toHaveLength(2);
+    labels.remove();
+  });
+
+  test('ignores a cleared lookup even if it resolves after a new lookup for the same coordinates', async () => {
+    let deliverOld, oldRead = false;
+    const fetch = vi.spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(() => new Promise(resolve => { deliverOld = resolve; }))
+      .mockResolvedValue(response('New trailhead'));
+    pick('origin', 11, 22);
+    action('clear-planner');
+    pick('origin', 11, 22);
+    await vi.waitFor(() => expect(document.getElementById('originPlaceName').textContent).toBe('New trailhead'));
+    deliverOld({ ok: true, json: async () => { oldRead = true; return { status: 'OK', results: [{ formatted_address: 'Old trailhead' }] }; } });
+    await vi.waitFor(() => expect(oldRead).toBe(true));
+    expect(document.getElementById('originPlaceName').textContent).toBe('New trailhead');
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes('/geocode/'))).toHaveLength(2);
+  });
+
+  test('retains GPS coordinates when place lookup is denied and clears their label on editing', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({ status: 'REQUEST_DENIED', results: [] }) });
+    navigator.geolocation.getCurrentPosition.mockImplementationOnce(success => success({ coords: { latitude: 11, longitude: 22 } }));
+    appModule.useMyLocation('origin');
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    const input = document.getElementById('origin');
+    expect(input.value).toBe('11.000000, 22.000000');
+    expect(document.getElementById('originPlaceName').hidden).toBe(true);
+    input.value = 'New address';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(input.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  test('does not geocode typed coordinates on key save or route reuse when their option is off', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(url => Promise.resolve(
+      String(url).includes('computeRoutes')
+        ? { ok: true, json: async () => ({ routes: [{ polyline: { encodedPolyline: '_p~iF~ps|U_ulLnnqC' } }] }) }
+        : response('Unrequested place')
+    ));
+    document.getElementById('origin').value = '11, 22';
+    document.getElementById('destination').value = '33, 44';
+    await appModule.getRoute();
+    document.getElementById('apiKeyInput').value = 'replacement-key';
+    document.getElementById('rememberApiKey').checked = false;
+    document.getElementById('saveApiKeyBtn').click();
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes('/geocode/'))).toHaveLength(0);
+    document.querySelector('.route-item:last-child [data-action="edit-route"]').click();
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes('/geocode/'))).toHaveLength(0);
+  });
+
+  test('deduplicates typed-coordinate lookups across endpoints and waypoints', async () => {
+    const labels = document.createElement('input');
+    labels.id = 'labelCoordinates';
+    labels.type = 'checkbox';
+    labels.checked = true;
+    document.body.appendChild(labels);
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(url => Promise.resolve(
+      String(url).includes('computeRoutes')
+        ? { ok: true, json: async () => ({ routes: [{ polyline: { encodedPolyline: '_p~iF~ps|U_ulLnnqC' } }] }) }
+        : response('One shared place')
+    ));
+    try {
+      document.getElementById('origin').value = '11, 22';
+      document.getElementById('destination').value = '11.0, 22.0';
+      appModule.addStop('11.000, 22.000');
+      await appModule.getRoute();
+      await vi.waitFor(() => expect(document.querySelector('.route-item:last-child .route-item-title').textContent).toBe('One shared place → One shared place'));
+      expect(fetch.mock.calls.filter(([url]) => String(url).includes('/geocode/'))).toHaveLength(1);
+      expect(document.querySelector('.stop-location .location-name').textContent).toBe('One shared place');
+    } finally { labels.remove(); }
+  });
+
+  test('cancels typed-coordinate lookups on reset and ignores their late responses', async () => {
+    const labels = document.createElement('input');
+    labels.id = 'labelCoordinates';
+    labels.type = 'checkbox';
+    labels.checked = true;
+    document.body.appendChild(labels);
+    const pending = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url, options) => {
+      if (String(url).includes('computeRoutes')) return Promise.resolve({ ok: true, json: async () => ({ routes: [{ polyline: { encodedPolyline: '_p~iF~ps|U_ulLnnqC' } }] }) });
+      return new Promise(resolve => pending.push({ resolve, signal: options.signal }));
+    });
+    try {
+      document.getElementById('origin').value = '11, 22';
+      document.getElementById('destination').value = '33, 44';
+      await appModule.getRoute();
+      expect(pending).toHaveLength(2);
+      action('clear-planner');
+      const aborted = pending.every(request => request.signal.aborted);
+      const reads = pending.map(request => {
+        const json = vi.fn(async () => ({ status: 'OK', results: [{ formatted_address: 'Cleared name' }] }));
+        request.resolve({ ok: true, json });
+        return json;
+      });
+      await vi.waitFor(() => expect(reads.every(read => read.mock.calls.length === 1)).toBe(true));
+      document.getElementById('origin').value = '11, 22';
+      document.getElementById('origin').dispatchEvent(new Event('input', { bubbles: true }));
+      await vi.waitFor(() => expect(JSON.parse(localStorage.getItem('route2gpx_draft')).origin).toBe('11, 22'));
+      expect(document.getElementById('originPlaceName').hidden).toBe(true);
+      expect(JSON.parse(localStorage.getItem('route2gpx_draft')).placeNames).toEqual({});
+      expect(aborted).toBe(true);
+    } finally { labels.remove(); }
+  });
+
+  test.each(['rename', 'delete'])('respects a route %s while a place lookup is pending', async change => {
+    let deliver;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      if (String(url).includes('computeRoutes')) return Promise.resolve({ ok: true, json: async () => ({ routes: [{ polyline: { encodedPolyline: '_p~iF~ps|U_ulLnnqC' } }] }) });
+      return new Promise(resolve => { deliver = resolve; });
+    });
+    pick('origin', 11, 22);
+    document.getElementById('destination').value = 'Destination';
+    await appModule.getRoute();
+    const row = document.querySelector('.route-item:last-child');
+    const id = row.dataset.routeId;
+    if (change === 'rename') {
+      row.querySelector('[data-action="rename-route"]').click();
+      document.getElementById('renameInput').value = 'My route';
+      document.getElementById('confirmRenameBtn').click();
+    } else {
+      row.querySelector('[data-action="remove-route"]').click();
+    }
+    deliver(response('Late place'));
+    await vi.waitFor(() => expect(document.getElementById('originPlaceName').textContent).toBe('Late place'));
+    const saved = JSON.parse(localStorage.getItem('route2gpx_routes')).routes.find(route => String(route.id) === id);
+    if (change === 'rename') {
+      expect(saved.name).toBe('My route');
+      expect(saved.origin).toBe('Late place');
+      expect(document.querySelector(`.route-item[data-route-id="${id}"] .route-item-title`).textContent).toBe('My route');
+    } else {
+      expect(saved).toBeUndefined();
+      expect(document.querySelector(`.route-item[data-route-id="${id}"]`)).toBeNull();
+    }
+  });
+
+  test('numbers planner pins by their input row when earlier waypoints are empty', () => {
+    appModule.addStop('');
+    appModule.addStop('11, 22');
+    expect(globalThis.L.marker.mock.lastCall[1].title).toBe('Waypoint 2: 11, 22');
+  });
+
+  test('updates an existing planner pin and supports Enter and Space without losing focus', async () => {
+    const element = document.createElement('button');
+    document.body.appendChild(element);
+    const createMarker = globalThis.L.marker.getMockImplementation();
+    let marker;
+    globalThis.L.marker.mockImplementationOnce((point, options) => {
+      marker = { ...createMarker(point, options), options, getElement: () => element };
+      return marker;
+    });
+    try {
+      appModule.addStop('11, 22');
+      const input = document.querySelector('.stop-input');
+      const keydown = marker.on.mock.calls.filter(([event]) => event === 'keydown').at(-1)[1];
+      element.focus();
+      keydown({ originalEvent: { key: 'ArrowRight' } });
+      expect(document.activeElement === element).toBe(true);
+      for (const key of ['Enter', ' ']) {
+        element.focus();
+        const event = { key };
+        keydown({ originalEvent: event });
+        expect(document.activeElement === input).toBe(true);
+        expect(globalThis.L.DomEvent.preventDefault).toHaveBeenCalledWith(event);
+        expect(globalThis.L.DomEvent.stopPropagation).toHaveBeenCalledWith(event);
+      }
+      element.focus();
+      const nextColor = (appModule.getPaletteColorIndex(document.getElementById('routeColor').value) + 1) % 10;
+      appModule.selectColor(nextColor);
+      expect(document.activeElement === element).toBe(true);
+      const allocations = globalThis.L.marker.mock.calls.length;
+      input.value = '33, 44';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await vi.waitFor(() => expect(element.title).toBe('Waypoint 1: 33, 44'));
+      expect(marker.setLatLng).toHaveBeenCalledWith([33, 44]);
+      expect(marker.setIcon).toHaveBeenCalled();
+      expect(marker.setTooltipContent.mock.lastCall[0].textContent).toBe('Waypoint 1: 33, 44');
+      expect(globalThis.L.marker.mock.calls.length).toBe(allocations);
+      expect(document.activeElement === element).toBe(true);
+    } finally { element.remove(); }
+  });
+
+  test('moves focus to the next waypoint or destination when a waypoint is removed', () => {
+    appModule.addStop('First');
+    appModule.addStop('Second');
+    const remove = document.querySelector('.stop-row [data-action="remove-stop"]');
+    remove.focus();
+    remove.click();
+    expect(document.activeElement).toBe(document.querySelector('.stop-input'));
+    document.querySelector('.stop-row [data-action="remove-stop"]').click();
+    expect(document.activeElement).toBe(document.getElementById('destination'));
   });
 });
 
