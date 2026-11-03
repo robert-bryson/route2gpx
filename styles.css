@@ -1431,7 +1431,7 @@ hr {
     overflow-y: auto;
     opacity: 0;
     visibility: hidden;
-    transition: opacity 0.2s, visibility 0.2s;
+    transition: opacity 0.2s;
 }
 
 .modal-overlay.visible {
@@ -1501,6 +1501,54 @@ hr {
     margin-top: 4px;
     word-break: break-all;
 }
+
+.export-formats {
+    border: 0;
+    min-width: 0;
+}
+
+.export-modal { display: flex; flex-direction: column; overflow: hidden; }
+.export-modal h2, .export-modal > .btn-row { flex-shrink: 0; }
+.export-body { overflow-y: auto; min-height: 0; padding: 6px; margin: -6px; overscroll-behavior: contain; }
+.export-modal > .btn-row { padding-top: 16px; }
+
+.export-format-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.export-formats legend {
+    font-size: 0.85rem;
+    color: #b7c3dc;
+    margin-bottom: 10px;
+}
+
+.export-format {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    min-height: 52px;
+    border: 1px solid #2a3a5c;
+    border-radius: 7px;
+    cursor: pointer;
+    background: #1a2948;
+}
+
+.export-format:hover { border-color: #6c8cb6; }
+.export-format:has(input:checked) { border-color: #00d4ff; background: rgba(0, 212, 255, 0.08); }
+.export-format input { accent-color: #00d4ff; flex: 0 0 auto; }
+.export-format-name { color: #eee; font-weight: 600; min-width: 62px; }
+.export-format-description { color: #b7c3dc; font-size: 0.75rem; line-height: 1.4; }
+.export-modal .export-format-hint { color: #b7c3dc; font-size: 0.78rem; margin: 10px 0 18px; }
+.export-modal .export-error { color: #ffc773; font-size: 0.8rem; }
+.export-details { margin-bottom: 20px; }
+.export-details summary { color: #b7c3dc; font-size: 0.8rem; cursor: pointer; }
+.export-details summary:focus-visible { outline: 3px solid #00d4ff; outline-offset: 4px; }
+.export-details .export-hint { margin: 10px 0; font-size: 0.78rem; }
+.route-item-actions .route-download { min-width: 36px; display: inline-flex; align-items: center; justify-content: center; }
+.route-popup .route-download { flex: 0 0 38px; }
 
 .checkbox-row {
     display: flex;
@@ -1848,6 +1896,8 @@ hr {
     .route-field-main .input-with-btn { grid-template-columns: minmax(0, 1fr) repeat(3, 44px); }
     input[type="text"], input[type="password"], input[type="datetime-local"] { font-size: 16px; }
     .route-item-actions button { min-height: 44px; }
+    .route-item-actions .route-download { min-width: 44px; }
+    .route-popup .route-download { flex-basis: 44px; }
 
     /* Larger touch targets on mobile */
     .btn-icon {

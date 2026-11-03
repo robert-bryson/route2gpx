@@ -1,4 +1,4 @@
-import { normalizeTrack, numericValue, haversineDistance } from './track-data.js';
+import { prepareExportTrack } from './export-data.js';
 
 export function escapeXml(text) {
     return String(text ?? '')
@@ -23,13 +23,11 @@ export function uniqueGpxFilenames(routes) {
 }
 
 export function generateGPX(route, { timePolicy = 'preserve', startTime = new Date() } = {}) {
-    const track = normalizeTrack(route);
+    const track = prepareExportTrack(route, { timePolicy, startTime });
     const coords = track.coordinates;
-    if (coords.length < 2) throw new Error('A track needs at least two valid points.');
     const starts = new Set(track.segmentStarts);
     const stops = (Array.isArray(route.stops) ? route.stops : []).filter(stop => typeof stop === 'string' && stop.trim());
-    const now = new Date(startTime);
-    if (!Number.isFinite(now.getTime())) throw new Error('Invalid export start time.');
+    const now = track.exportTime;
     let minlat = Infinity, maxlat = -Infinity, minlon = Infinity, maxlon = -Infinity;
     for (let i = 0; i < coords.length; i++) {
         minlat = Math.min(minlat, coords[i][0]); maxlat = Math.max(maxlat, coords[i][0]);
@@ -48,12 +46,6 @@ export function generateGPX(route, { timePolicy = 'preserve', startTime = new Da
     });
     waypoint(coords[coords.length - 1], `End: ${route.destination}`);
     lines.push('  <trk>', `    <name>${escapeXml(route.name)}</name>`, `    <type>${escapeXml(route.travelMode)}</type>`);
-    const distances = new Float64Array(coords.length);
-    if (timePolicy === 'synthesize') {
-        for (let i = 1; i < coords.length; i++) distances[i] = distances[i - 1] + (starts.has(i) ? 0 : haversineDistance(coords[i - 1], coords[i]));
-    }
-    const totalDistance = distances[coords.length - 1];
-    const seconds = Math.max(0, numericValue(String(route.duration || '').replace(/s$/, '')) ?? (coords.length - 1) * 60);
     coords.forEach(([lat, lng], index) => {
         if (starts.has(index)) {
             if (index) lines.push('    </trkseg>');
@@ -61,8 +53,7 @@ export function generateGPX(route, { timePolicy = 'preserve', startTime = new Da
         }
         lines.push(`      <trkpt lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}">`);
         if (track.elevations[index] !== null) lines.push(`        <ele>${track.elevations[index]}</ele>`);
-        let time = timePolicy === 'preserve' ? track.times[index] : null;
-        if (timePolicy === 'synthesize') time = new Date(now.getTime() + seconds * 1000 * (totalDistance ? distances[index] / totalDistance : index / (coords.length - 1))).toISOString();
+        const time = track.times[index];
         if (time) lines.push(`        <time>${time}</time>`);
         lines.push('      </trkpt>');
     });

@@ -1,13 +1,17 @@
 # route2gpx
 
-Convert planned routes and recorded GPS tracks to GPX files. Use the [web app](https://route2gpx.rsmb.tv/) or the Python command-line tool.
+Convert planned routes and recorded GPS tracks to GPX, KML, GeoJSON, TCX, or CSV in the [web app](https://route2gpx.rsmb.tv/). The Python command-line tool creates GPX files.
 
 ## Use the web app
 
 1. Open the app. To import a recorded track, select **Import GPS file**. A Google key is not necessary for imports.
 2. To calculate a route, set a Google Routes API key. Enter an origin and a destination. Add intermediate waypoints if necessary.
 3. Select Drive, Bicycle, Walk, or Transit. Select **Get Route**.
-4. Select **GPX** on a route. Check the elevation and time coverage. Enter a filename. Download the file.
+4. Select a route's **download icon**. Select a format. Check the filename. Select **Download**.
+
+Use GPX for a track backup, KML for Google Earth, GeoJSON for GIS, TCX for fitness courses, or CSV for spreadsheets. Expand **Track data & options** to check elevation and time coverage.
+
+TCX needs a time for every point. If times are missing, select **Generate new timestamps** or use another format. Generation replaces all recorded times with estimates. It is off each time the popup opens. See the [format guide](docs/export-formats.md) for exact data rules and CSV columns.
 
 Use **Edit / reuse** to copy a calculated route into the planner. Rename a route to change its display name. After deletion, **Undo** remains available for 15 seconds.
 
@@ -38,9 +42,14 @@ The app accepts GPX, KML, FIT, TCX, GeoJSON, and their gzip-compressed forms. Fo
 - GPX, KML, and TCX parse without an XML DOM. XML imports have nesting, field-length, and track-count limits. The parser can buffer a complete text field, including a KML coordinate list. These limits do not cap total memory use. Document types and custom entities are unsupported.
 - XML fields must use the track document's namespace and supported parent elements. Foreign extensions cannot replace point data. KML tracks use the standard Google extension namespace.
 - GPX exports preserve segment breaks, recorded times, and known elevations. Missing values are omitted. Full route coordinates remain available for export.
+- KML exports keep separate segments and known elevations for Google Earth and other map viewers. Point timestamps are omitted. GeoJSON exports use longitude/latitude positions, optional heights, and separate line geometries; recorded times use aligned `coordTimes` properties (also read on import). Other apps may ignore this timestamp convention.
+- KML and GeoJSON retain isolated one-point segments as Points. These are preserved in the download, but the app's line-only importer skips them. Exports retain source height values without converting their vertical datum.
+- TCX exports a Course with separate tracks. Its short name has at most 15 characters; Notes retains the full name. TCX maps longitude `180` to the equivalent `-180`. It does not create recorded activities or fitness measurements.
+- CSV exports one row per point. It includes segment and point numbers, latitude, longitude, elevation in meters, and recorded time. Missing fields stay empty. Route names and descriptions are excluded. CSV import is not supported.
 - Invalid calendar dates are omitted. Zoned times convert to UTC and retain fractional-second precision. Times without a zone keep their original wall time.
 - Export replaces characters that XML cannot represent with the replacement character `�`. Other Unicode text remains unchanged.
-- The download dialog offers optional timestamp synthesis from route duration and distance. ZIP exports preserve recorded times and allocate unique filenames. The ZIP data summary lists elevation and time coverage for each exported route.
+- GPX and TCX can generate point times from route duration and distance. If duration is unknown, the total estimate uses one minute per point interval. Generation starts at download time. Distance does not increase across segment gaps.
+- **Download All (ZIP)** bundles GPX files. It keeps recorded times and assigns unique filenames. The ZIP data summary lists elevation and time coverage for each route.
 - Coordinate waypoints can be exported as GPX waypoints. Address and place-name waypoints remain in the description.
 
 Elevation lookup is optional. One queue spaces requests across routes. It samples at most 1,000 points per route. It interpolates between successful samples within each segment.
@@ -105,7 +114,7 @@ Tests use real Leaflet, local fixtures, generated downloads, and intercepted pro
 
 CI checks Node 22.22.2, 24.15.0, and 26.12.0. Each job runs lint, coverage, the build, and browser tests. Amplify runs lint and unit tests before it packages the app.
 
-The [current review](docs/reviews/2026-11-02-planner-review.md) records defects, fixes, and test results. The [architecture guide](docs/architecture.md) defines module boundaries and data rules. [TODO.md](TODO.md) lists unfinished work.
+The [export review](docs/reviews/2026-11-03-export-review.md) records the latest findings and checks. The [planner review](docs/reviews/2026-11-02-planner-review.md) records the previous planner changes. The [architecture guide](docs/architecture.md) defines module boundaries and data rules. [TODO.md](TODO.md) lists unfinished work.
 
 For XML memory measurements, read the [earlier hardening report](docs/reviews/2026-11-02-architecture-hardening.md#desktop-measurement). Run `node scripts/benchmark-xml.cjs 100000` to compare parsing against the DOM implementation at `f4c77eb`. These desktop measurements do not establish mobile-device limits.
 

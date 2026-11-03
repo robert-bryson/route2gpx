@@ -450,19 +450,31 @@
         </div>
     </div>
 
-    <!-- Filename Confirmation Modal -->
+    <!-- Route Download Popup -->
     <div class="modal-overlay" id="filenameModal" role="dialog" aria-modal="true" aria-labelledby="filename-modal-title"
         tabindex="-1">
-        <div class="modal">
-            <h2 id="filename-modal-title"><span class="ui-icon" data-icon="save" data-icon-class="icon-lg"
-                    aria-hidden="true"></span> Save GPX File</h2>
-            <div class="form-group">
-                <label for="filenameInput">Filename</label>
-                <input type="text" id="filenameInput" placeholder="route.gpx" autocomplete="off" />
-                <div class="filename-preview" id="filenamePreview"></div>
+        <div class="modal export-modal">
+            <h2 id="filename-modal-title"><span class="ui-icon" data-icon="download" data-icon-class="icon-lg"
+                    aria-hidden="true"></span> Download route</h2>
+            <div class="export-body">
+                <fieldset class="export-formats" id="exportFormats" aria-describedby="exportFormatHint">
+                    <legend>Choose a format</legend>
+                    <div class="export-format-choices" id="exportFormatChoices"></div>
+                </fieldset>
+                <p id="exportFormatHint" class="export-format-hint" aria-live="polite"></p>
+                <div id="exportRequiredOptions"></div>
+                <p id="exportError" class="export-error" role="status" hidden></p>
+                <div class="form-group">
+                    <label for="filenameInput">Filename</label>
+                    <input type="text" id="filenameInput" placeholder="route.gpx" autocomplete="off" aria-describedby="filenamePreview" />
+                    <div class="filename-preview" id="filenamePreview"></div>
+                </div>
+                <details id="exportDetails" class="export-details">
+                    <summary>Track data &amp; options</summary>
+                    <p id="exportDataHint" class="export-hint"></p>
+                    <label class="checkbox-row" id="exportTimestampOption"><input type="checkbox" id="synthesizeTimes"> <span>Generate new timestamps. Replaces all recorded times, starting at download time. Uses route duration, or one minute per point interval if duration is unknown.</span></label>
+                </details>
             </div>
-            <p id="exportDataHint" class="export-hint"></p>
-            <label class="checkbox-row"><input type="checkbox" id="synthesizeTimes"> Generate new timestamps from route duration. Leave unchecked to preserve recorded times.</label>
             <div class="btn-row">
                 <button type="button" class="btn-outline" id="cancelFilenameBtn">Cancel</button>
                 <button type="button" id="confirmFilenameBtn">Download</button>

@@ -1611,14 +1611,13 @@ function setMobileView(view) {
     if (typeof map.invalidateSize === 'function') map.invalidateSize({ pan: false });
 }
 
-// ============ GPX Downloads ============
+// ============ Route Downloads ============
 function downloadRoute(id) {
     const route = routes.find(r => r.id === id);
     if (!route) return;
 
-    const gpx = null;
     const filename = `${sanitizeFilename(route.travelMode.toLowerCase())}_${sanitizeFilename(route.name)}.gpx`;
-    openFilenameModal(id, gpx, filename);
+    openFilenameModal(id, null, filename);
 }
 
 async function downloadAllRoutes() {

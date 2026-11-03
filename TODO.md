@@ -1,6 +1,6 @@
 # Remaining work
 
-The [current review](docs/reviews/2026-11-02-planner-review.md) records completed fixes and validation. Read the [architecture guide](docs/architecture.md) before you change module boundaries. This list contains unfinished work only.
+The [export review](docs/reviews/2026-11-03-export-review.md) records the latest fixes and checks. The [planner review](docs/reviews/2026-11-02-planner-review.md) records earlier work. Read the [architecture guide](docs/architecture.md) before you change module boundaries. This list contains unfinished work only.
 
 ## Before deployment
 

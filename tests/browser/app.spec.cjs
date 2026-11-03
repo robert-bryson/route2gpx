@@ -81,6 +81,116 @@ test('exports every identically named KML track into a distinct ZIP entry', asyn
     await expect(page.locator('#batchExportItems li').first()).toContainText('Elevation: 0/2 points');
 });
 
+for (const format of ['kml', 'geojson', 'tcx', 'csv']) {
+    test(`downloads ${format} from the format popup with separate segments`, async ({ page }) => {
+        await page.goto('/');
+        await page.locator('#importFileInput').setInputFiles(file('recorded.gpx', track));
+        const trigger = page.getByRole('button', { name: 'Download Recorded trail', exact: true });
+        await expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+        await trigger.click();
+        const dialog = page.getByRole('dialog', { name: 'Download route', exact: true });
+        await expect(dialog).toBeVisible();
+        await expect(dialog.getByRole('radio', { name: 'GPX GPS devices & outdoor apps', exact: true })).toBeFocused();
+        await page.locator(`input[name="exportFormat"][value="${format}"]`).check();
+        await expect(page.locator('#filenameInput')).toHaveValue(`imported_Recorded trail.${format}`);
+        await page.locator('#filenameInput').fill('My route');
+        await expect(page.locator('#filenamePreview')).toHaveText(`My route.${format}`);
+        await page.locator('#exportDetails summary').click();
+        await expect(page.locator('#exportDataHint')).toContainText('2 segment(s)');
+        if (format === 'tcx') {
+            await expect(page.locator('#synthesizeTimes')).toBeVisible();
+            await expect(page.locator('#confirmFilenameBtn')).toBeDisabled();
+            await expect(page.locator('#exportError')).toContainText('TCX needs a time for every point');
+            await page.locator('#synthesizeTimes').check();
+            await expect(page.locator('#synthesizeTimes')).toBeFocused();
+            await expect(page.locator('#confirmFilenameBtn')).toBeEnabled();
+        } else {
+            await expect(page.locator('#synthesizeTimes')).not.toBeVisible();
+        }
+        const waiting = page.waitForEvent('download');
+        await page.locator('#confirmFilenameBtn').click();
+        const download = await waiting;
+        expect(download.suggestedFilename()).toBe(`My route.${format}`);
+        const source = await fs.readFile(await download.path(), 'utf8');
+        if (format === 'geojson') {
+            const json = JSON.parse(source);
+            expect(json.geometry.type).toBe('MultiLineString');
+            expect(json.geometry.coordinates.map(segment => segment.length)).toEqual([2, 2]);
+            expect(json.geometry.coordinates[0][0]).toEqual([-122, 47, 0]);
+            expect(json.properties.coordTimes).toEqual([['2020-01-01T00:00:00.000Z', null], [null, null]]);
+        } else if (format === 'csv') {
+            expect(source.split('\r\n')).toEqual([
+                'segment,point,latitude,longitude,elevation_m,time',
+                '1,1,47,-122,0,2020-01-01T00:00:00.000Z',
+                '1,2,47.001,-122,,', '2,3,40,-74,,', '2,4,40.001,-74,,', '',
+            ]);
+        } else if (format === 'tcx') {
+            expect(await page.evaluate(xml => {
+                const doc = new DOMParser().parseFromString(xml, 'application/xml');
+                return {
+                    tracks: doc.querySelectorAll('Course > Track').length,
+                    times: doc.querySelectorAll('Trackpoint > Time').length,
+                    generated: doc.querySelector('Notes').textContent.includes('generated estimates'),
+                    error: Boolean(doc.querySelector('parsererror')),
+                };
+            }, source)).toEqual({ tracks: 2, times: 4, generated: true, error: false });
+        } else {
+            expect(await page.evaluate(xml => {
+                const doc = new DOMParser().parseFromString(xml, 'application/xml');
+                return { lines: doc.querySelectorAll('MultiGeometry > LineString').length, error: Boolean(doc.querySelector('parsererror')) };
+            }, source)).toEqual({ lines: 2, error: false });
+        }
+        await expect(dialog).not.toBeVisible();
+        await expect(trigger).toBeFocused();
+    });
+}
+
+for (const viewport of [{ width: 320, height: 568 }, { width: 667, height: 375 }]) {
+    test(`keeps the download popup usable at ${viewport.width}×${viewport.height}`, async ({ page }) => {
+        await page.setViewportSize(viewport);
+        await page.goto('/');
+        await page.locator('#importFileInput').setInputFiles(file('recorded.gpx', track));
+        await page.locator('button[data-mobile-view="planner"]').click();
+        const trigger = page.locator('.route-item [data-action="download-route"]');
+        await trigger.click();
+        const modal = page.locator('#filenameModal .modal');
+        const bounds = await modal.boundingBox();
+        expect(bounds.y).toBeGreaterThanOrEqual(0);
+        expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
+        expect(await modal.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false);
+        for (const id of ['cancelFilenameBtn', 'confirmFilenameBtn']) {
+            const button = await page.locator(`#${id}`).boundingBox();
+            expect(button.y).toBeGreaterThanOrEqual(0);
+            expect(button.y + button.height).toBeLessThanOrEqual(viewport.height);
+        }
+        await page.keyboard.press('ArrowDown');
+        await expect(page.locator('input[value="kml"]')).toBeChecked();
+        await page.keyboard.press('Shift+Tab');
+        await expect(page.locator('#confirmFilenameBtn')).toBeFocused();
+        await page.keyboard.press('Tab');
+        await expect(page.locator('input[value="kml"]')).toBeFocused();
+        await page.locator('#exportDetails summary').click();
+        await page.locator('input[value="tcx"]').check();
+        await expect(page.locator('#synthesizeTimes')).toBeVisible();
+        await page.locator('#synthesizeTimes').check();
+        await expect(page.locator('#synthesizeTimes')).toBeFocused();
+        await expect(page.locator('#confirmFilenameBtn')).toBeEnabled();
+        expect(await modal.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false);
+        await page.locator('#filenameInput').focus();
+        const focusSpace = await page.locator('#filenameInput').evaluate(input => {
+            const bounds = input.getBoundingClientRect();
+            const body = input.closest('.export-body').getBoundingClientRect();
+            const style = getComputedStyle(input);
+            return { left: bounds.left - body.left, right: body.right - bounds.right,
+                outline: parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset) };
+        });
+        expect(focusSpace.left).toBeGreaterThanOrEqual(focusSpace.outline);
+        expect(focusSpace.right).toBeGreaterThanOrEqual(focusSpace.outline);
+        await page.locator('#cancelFilenameBtn').click();
+        await expect(trigger).toBeFocused();
+    });
+}
+
 test('keeps focus on route actions, renames, and restores a deleted route', async ({ page }) => {
     await page.goto('/');
     await page.locator('#importFileInput').setInputFiles(file('recorded.gpx', track));

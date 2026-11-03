@@ -4,7 +4,8 @@ import { parseXmlTracks } from './xml-import.js';
 
 // GeoJSON coordinates are already materialized by JSON.parse.
 function* mapPoints(values, parsePoint) {
-    for (const value of values) yield parsePoint(value);
+    let index = 0;
+    for (const value of values) yield parsePoint(value, index++);
 }
 
 export const parseGPX = source => parseXmlTracks(source, 'gpx');
@@ -26,24 +27,26 @@ export function parseGeoJSON(source) {
     const budget = { points: 0 };
     const tracks = [];
     let unsupportedGeometries = 0;
-    function geometry(value, name, depth = 0) {
+    function geometry(value, name, depth = 0, coordTimes) {
         if (depth > 64) throw new Error('GeoJSON nesting is too deep.');
         if (!value || typeof value !== 'object') return;
         if (value.type === 'FeatureCollection') {
             if (!Array.isArray(value.features)) throw new Error('Invalid GeoJSON features.');
             value.features.forEach(feature => geometry(feature, name, depth + 1));
         } else if (value.type === 'Feature') {
-            geometry(value.geometry, typeof value.properties?.name === 'string' ? value.properties.name : name, depth + 1);
+            geometry(value.geometry, typeof value.properties?.name === 'string' ? value.properties.name : name, depth + 1, value.properties?.coordTimes);
         } else if (value.type === 'GeometryCollection') {
             if (!Array.isArray(value.geometries)) throw new Error('Invalid GeoJSON geometries.');
             value.geometries.forEach(item => geometry(item, name, depth + 1));
         } else if (value.type === 'LineString' || value.type === 'MultiLineString') {
             const lines = value.type === 'LineString' ? [value.coordinates] : value.coordinates;
+            const times = value.type === 'LineString' ? [coordTimes] : coordTimes;
             if (!Array.isArray(lines)) throw new Error('Invalid GeoJSON line coordinates.');
-            tracks.push(trackFromSegments(lines.filter(Array.isArray).map(line => mapPoints(line, point => ({
+            tracks.push(trackFromSegments(lines.map((line, segment) => Array.isArray(line) ? mapPoints(line, (point, index) => ({
                 coordinate: Array.isArray(point) && typeof point[0] === 'number' && typeof point[1] === 'number' ? [point[1], point[0]] : null,
-                elevation: typeof point?.[2] === 'number' ? point[2] : null
-            }))), name, budget));
+                elevation: typeof point?.[2] === 'number' ? point[2] : null,
+                time: Array.isArray(times?.[segment]) ? times[segment][index] : null,
+            })) : []), name, budget));
         } else unsupportedGeometries++;
     }
     geometry(input, typeof input?.name === 'string' ? input.name : null);

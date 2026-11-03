@@ -191,7 +191,7 @@ export function parseXmlTracks(source, format) {
             gx = null;
         }
         if (frame.container) {
-            if (format === 'tcx') current.track.name = current.fields.Notes || current.fields.Name || current.fields.Id || null;
+            if (format === 'tcx') current.track.name = current.fields.Name || current.fields.Notes || current.fields.Id || null;
             tracks.push(current.track);
             current = fallback;
         }
@@ -207,7 +207,7 @@ export function parseXmlTracks(source, format) {
     }
     parser.close();
     if (!trackCount) {
-        fallback.track.name ||= fallback.fields.Notes || fallback.fields.Name || fallback.fields.Id || null;
+        fallback.track.name ||= fallback.fields.Name || fallback.fields.Notes || fallback.fields.Id || null;
         tracks.push(fallback.track);
     }
     if (format === 'gpx') for (const track of tracks) track.name ||= fallbackName;

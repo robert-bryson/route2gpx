@@ -7,7 +7,8 @@
 | `track-data.js` | Validate aligned coordinates, elevations, and times. Preserve segment breaks and calculate distance within segments. |
 | `gps-import.js`, `xml-import.js`, `parsers.js` | Detect formats and parse XML, GeoJSON, and FIT into tracks. Report skipped content. |
 | `compression.js`, `import-client.js`, `import-worker.js` | Bound expanded data and move supported large imports to a cancellable worker. |
-| `gpx.js` | Export validated tracks with explicit timestamp policy and unique archive names. |
+| `export-data.js` | Validate export tracks. Share cumulative distance and explicit timestamp generation. Never add distance across gaps. |
+| `gpx.js`, `route-export.js` | Export GPX, KML, GeoJSON, TCX, and CSV. Register each format's serializer, labels, MIME type, and time options. Create safe filenames and unique GPX archive names. |
 | `google-routes.js`, `network.js` | Validate requests, preserve useful errors, enforce timeouts, and support cancellation. |
 | `elevation.js` | Share request spacing, sample by distance, retain partial results, and interpolate within segments. |
 | `route-storage.js` | Read legacy records and commit geometry and metadata consistently. |
@@ -49,6 +50,14 @@ Keep Leaflet layers, DOM nodes, and map event handlers out of route data. `creat
 After a label change, call `updateLabels`. After a collection change, call `updateStyles` once for the complete batch. Hover changes the line style without rebuilding endpoint icons.
 
 Keep original coordinates for GPX output. A future renderer or map simplification must not replace export geometry. Canvas is still an experiment that needs representative measurements.
+
+KML writes a separate geometry per segment and omits point times. GeoJSON uses LineString or MultiLineString. It adds aligned `properties.coordTimes` when recorded times exist. Import validates those times through the normal track pipeline. Both exporters retain isolated one-point segments as Points. The line-only importer skips those Points. Preserve source height values without a vertical datum conversion.
+
+TCX writes a Course with separate Track elements. It requires a time for every point. Default export must reject incomplete times. Only an explicit user choice can generate replacement times. The UI must display that choice and explain the disabled Download action. Limit the short name to 15 Unicode characters and retain the full name in Notes. TCX import uses Name before descriptive Notes. Convert longitude `180` to its equivalent `-180` to meet the schema.
+
+CSV has fixed numeric and time columns. Do not add untrusted text cells without a spreadsheet formula policy. CSV is export-only. The [format guide](export-formats.md) defines the columns and time rules.
+
+Build popup choices and filename extension handling from the format registry. Dispatch through the registered serializer. Do not make an unknown format fall through to another serializer. Preserve checkbox focus when changing export options; move its label only when its parent must change. File-name editing must not normalize the complete route or clear an export error.
 
 ## Storage commits
 

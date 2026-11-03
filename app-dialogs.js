@@ -1,9 +1,9 @@
-import { generateGPX, sanitizeFilename } from './gpx.js';
+import { EXPORT_FORMATS, exportFilename, generateRouteExport } from './route-export.js';
 
 export function exportDataDescription(route) {
     const known = route.elevations?.filter(Number.isFinite).length || 0;
     const recorded = route.times?.filter(Boolean).length || 0;
-    return `${route.coordinates.length.toLocaleString()} points · ${route.segmentStarts?.length || 1} segment(s). Elevation: ${known}/${route.coordinates.length} points${route.elevationController || route.elevationPending ? ' (still loading)' : ''}. Recorded times: ${recorded}/${route.coordinates.length} points. Missing elevations and times are omitted.${route.elevationSource?.sampled ? ' Elevation between samples is interpolated.' : ''}${route.elevationSource?.mixed ? ' Recorded and SRTM elevations are combined.' : ''}`;
+    return `${route.coordinates.length.toLocaleString()} points · ${route.segmentStarts?.length || 1} segment(s). Elevation: ${known}/${route.coordinates.length} points${route.elevationController || route.elevationPending ? ' (still loading)' : ''}. Recorded times: ${recorded}/${route.coordinates.length} points. Missing values stay empty unless you select time generation.${route.elevationSource?.sampled ? ' Elevation between samples is interpolated.' : ''}${route.elevationSource?.mixed ? ' Recorded and SRTM elevations are combined.' : ''}`;
 }
 
 /** Dialog state and focus live here; route data stays with the coordinator. */
@@ -17,6 +17,22 @@ export function createAppDialogs({ getRoute, onRename, downloadFile, showStatus 
     const API_KEY_STORAGE_KEY = 'route2gpx_apiKey';
     const API_KEY_MEMORY_KEY = 'route2gpx_apiKey_session';
 
+    const choices = document.getElementById('exportFormatChoices');
+    if (choices) {
+        for (const [format, metadata] of Object.entries(EXPORT_FORMATS)) {
+            const label = document.createElement('label');
+            label.className = 'export-format';
+            const input = document.createElement('input');
+            input.type = 'radio'; input.name = 'exportFormat'; input.value = format;
+            input.checked = format === 'gpx';
+            const name = document.createElement('span');
+            name.className = 'export-format-name'; name.textContent = metadata.label;
+            const description = document.createElement('span');
+            description.className = 'export-format-description'; description.textContent = metadata.description;
+            label.append(input, name, description); choices.append(label);
+        }
+    }
+
     function dismissModal() {
         if (activeModal?.id === 'apiKeyModal') closeApiKeyModal();
         else if (activeModal?.id === 'filenameModal') closeFilenameModal();
@@ -25,8 +41,10 @@ export function createAppDialogs({ getRoute, onRename, downloadFile, showStatus 
 
     function getFocusableElements(container) {
         return Array.from(container.querySelectorAll(
-            'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )).filter(element => !element.closest('[hidden]'));
+            'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+        )).filter(element => !element.closest('[hidden]') &&
+            (!element.closest('details:not([open])') || element.tagName === 'SUMMARY') &&
+            (element.type !== 'radio' || element.checked));
     }
 
     function setAppInert(isInert) {
@@ -260,22 +278,25 @@ export function createAppDialogs({ getRoute, onRename, downloadFile, showStatus 
         closeRenameModal();
     }
 
-    let pendingDownload = null; // { routeId, gpxContent, defaultFilename }
+    let pendingDownload = null; // { routeId, gpxContent, defaultFilename, format }
 
-    function openFilenameModal(routeId, gpxContent, defaultFilename) {
-        pendingDownload = { routeId, gpxContent, defaultFilename };
+    function openFilenameModal(routeId, gpxContent, defaultFilename = 'route.gpx') {
+        const route = getRoute(routeId);
+        pendingDownload = { routeId, gpxContent, defaultFilename, format: 'gpx',
+            hasCompleteTimes: Boolean(route && route.times?.filter(Boolean).length === route.coordinates.length) };
         const modal = document.getElementById('filenameModal');
         const input = document.getElementById('filenameInput');
-        const preview = document.getElementById('filenamePreview');
         input.value = defaultFilename;
-        preview.textContent = defaultFilename;
+        const formatInput = document.querySelector('input[name="exportFormat"][value="gpx"]');
+        if (formatInput) formatInput.checked = true;
+        const details = document.getElementById('exportDetails');
+        if (details) details.open = false;
         const checkbox = document.getElementById('synthesizeTimes');
         if (checkbox) checkbox.checked = false;
-        const route = getRoute(routeId);
         const hint = document.getElementById('exportDataHint');
-        if (hint && route) hint.textContent = exportDataDescription(route);
-        openModal(modal, input);
-        input.select();
+        if (hint) hint.textContent = route ? exportDataDescription(route) : '';
+        updateExportChoice();
+        openModal(modal, formatInput || input);
     }
 
     function closeFilenameModal() {
@@ -285,25 +306,71 @@ export function createAppDialogs({ getRoute, onRename, downloadFile, showStatus 
 
     function confirmFilenameDownload() {
         if (!pendingDownload) return;
-        let filename = document.getElementById('filenameInput').value.trim();
-        if (!filename) filename = pendingDownload.defaultFilename;
-        if (!filename.toLowerCase().endsWith('.gpx')) filename += '.gpx';
-        filename = sanitizeFilename(filename.replace(/\.gpx$/i, '')) + '.gpx';
+        const { format } = pendingDownload;
+        const filename = exportFilename(document.getElementById('filenameInput').value.trim() || pendingDownload.defaultFilename, format);
         const route = getRoute(pendingDownload.routeId);
-        const content = route ? generateGPX(route, { timePolicy: document.getElementById('synthesizeTimes')?.checked ? 'synthesize' : 'preserve' }) : pendingDownload.gpxContent;
-        downloadFile(content, filename, 'application/gpx+xml');
+        if (!route && (format !== 'gpx' || !pendingDownload.gpxContent)) {
+            showStatus('This route is no longer available to download.', true);
+            closeFilenameModal();
+            return;
+        }
+        try {
+            const content = route ? generateRouteExport(route, format, { timePolicy: document.getElementById('synthesizeTimes')?.checked ? 'synthesize' : 'preserve' }) : pendingDownload.gpxContent;
+            downloadFile(content, filename, EXPORT_FORMATS[format].mimeType);
+        } catch (error) {
+            showExportError(`Download failed: ${error.message}`);
+            showStatus(`Download failed: ${error.message}`, true);
+            return;
+        }
         closeFilenameModal();
+    }
+
+    function updateFilenamePreview() {
+        if (!pendingDownload) return;
+        const { format } = pendingDownload;
+        const input = document.getElementById('filenameInput');
+        input.placeholder = `route.${format}`;
+        document.getElementById('filenamePreview').textContent = exportFilename(input.value.trim() || pendingDownload.defaultFilename, format);
+    }
+
+    function showExportError(message) {
+        const error = document.getElementById('exportError');
+        if (error) { error.textContent = message; error.hidden = !message; }
+    }
+
+    function updateExportChoice() {
+        if (!pendingDownload) return;
+        updateFilenamePreview();
+        const { format } = pendingDownload;
+        const metadata = EXPORT_FORMATS[format];
+        const hint = document.getElementById('exportFormatHint');
+        if (hint) hint.textContent = metadata.hint;
+        const times = document.getElementById('exportTimestampOption');
+        if (times) {
+            times.hidden = !metadata.supportsGeneratedTimes;
+            // TCX's required time choice must be visible without expanding optional details.
+            const container = metadata.requiresCompleteTimes ? document.getElementById('exportRequiredOptions') : document.getElementById('exportDetails');
+            if (times.parentElement !== container) container.append(times);
+        }
+        const needsTimes = metadata.requiresCompleteTimes && !pendingDownload.hasCompleteTimes && !document.getElementById('synthesizeTimes').checked;
+        const button = document.getElementById('confirmFilenameBtn');
+        button.textContent = `Download ${metadata.label}`;
+        button.disabled = Boolean(needsTimes);
+        showExportError(needsTimes ? 'TCX needs a time for every point. Select Generate new timestamps, or choose GPX.' : '');
     }
 
     // Modal event listeners
     listen(document.getElementById('filenameModal'), 'click', function (e) {
         if (e.target === this) closeFilenameModal();
     });
-    listen(document.getElementById('filenameInput'), 'input', function () {
-        let val = this.value.trim();
-        if (!val) val = pendingDownload?.defaultFilename || 'route.gpx';
-        if (!val.toLowerCase().endsWith('.gpx')) val += '.gpx';
-        document.getElementById('filenamePreview').textContent = sanitizeFilename(val.replace(/\.gpx$/i, '')) + '.gpx';
+    listen(document.getElementById('filenameInput'), 'input', updateFilenamePreview);
+    listen(document.getElementById('synthesizeTimes'), 'change', updateExportChoice);
+    listen(document.getElementById('exportFormats'), 'change', event => {
+        if (!pendingDownload || !Object.hasOwn(EXPORT_FORMATS, event.target.value)) return;
+        pendingDownload.format = event.target.value;
+        const input = document.getElementById('filenameInput');
+        if (input.value.trim()) input.value = exportFilename(input.value, pendingDownload.format);
+        updateExportChoice();
     });
     listen(document.getElementById('filenameInput'), 'keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); confirmFilenameDownload(); }

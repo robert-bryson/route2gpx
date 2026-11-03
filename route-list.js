@@ -44,8 +44,8 @@ export function createRouteList({ list, formatDistance, getRouteColorClass, onZo
                     <span>${iconSvg('route', 'icon-sm')} ${pointCount.toLocaleString()} points</span>
                 </div>
                 <div class="popup-actions">
-                    <button class="popup-btn download" data-action="download-route" data-route-id="${route.id}" title="Download GPX">
-                        ${iconSvg('download', 'icon-sm')} Download
+                    <button type="button" class="popup-btn download btn-icon route-download" data-action="download-route" data-route-id="${route.id}" title="Download route" aria-label="Download ${escapeHtml(route.name)}" aria-haspopup="dialog" aria-controls="filenameModal">
+                        ${iconSvg('download', 'icon-sm')}
                     </button>
                     <button class="popup-btn delete" data-action="remove-route" data-route-id="${route.id}" title="Remove route">
                         ${iconSvg('trash-2', 'icon-sm')} Remove
@@ -124,10 +124,10 @@ export function createRouteList({ list, formatDistance, getRouteColorClass, onZo
                             title="${route.visible ? 'Hide this route from the map' : 'Show this route on the map'}">
                         <span class="icon-label">${iconSvg(route.visible ? 'eye-off' : 'eye', 'icon-sm')} ${route.visible ? 'Hide' : 'Show'}</span>
                     </button>
-                    <button class="btn-outline btn-small" data-action="download-route" data-route-id="${route.id}"
-                            aria-label="Download GPX for ${escapeHtml(route.name)}"
-                            title="Download as GPX file for GPS devices">
-                        <span class="icon-label">${iconSvg('file-down', 'icon-sm')} GPX</span>
+                    <button type="button" class="btn-outline btn-small btn-icon route-download" data-action="download-route" data-route-id="${route.id}"
+                            aria-label="Download ${escapeHtml(route.name)}" aria-haspopup="dialog" aria-controls="filenameModal"
+                            title="Download route in your preferred format">
+                        ${iconSvg('download', 'icon-sm')}
                     </button>
                     <button class="btn-secondary btn-small" data-action="remove-route" data-route-id="${route.id}"
                             aria-label="Delete route ${escapeHtml(route.name)}"

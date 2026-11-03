@@ -115,6 +115,107 @@ test('keeps recorded times when timestamp synthesis is not selected', () => {
     expect(output).toContain('2020-01-01T00:00:00.000Z');
 });
 
+test.each([
+    ['kml', 'application/vnd.google-earth.kml+xml', '<kml'],
+    ['geojson', 'application/geo+json', '"LineString"'],
+    ['csv', 'text/csv;charset=utf-8', 'segment,point,latitude'],
+])('selects %s, updates the filename, and downloads the selected format', (format, mime, content) => {
+    dialogs.openFilenameModal(1, null, 'trail.gpx');
+    element('filenameInput').value = 'My trail.GPX';
+    const radio = document.querySelector(`input[name="exportFormat"][value="${format}"]`);
+    radio.click();
+    expect(element('filenameInput').value).toBe(`My trail.${format}`);
+    expect(element('filenamePreview').textContent).toBe(`My trail.${format}`);
+    expect(element('exportTimestampOption').hidden).toBe(true);
+    element('confirmFilenameBtn').click();
+    expect(downloadFile).toHaveBeenCalledWith(expect.stringContaining(content), `My trail.${format}`, mime);
+    dialogs.openFilenameModal(1, null, 'next.gpx');
+    expect(document.querySelector('input[name="exportFormat"]:checked').value).toBe('gpx');
+    expect(element('exportTimestampOption').hidden).toBe(false);
+    expect(element('exportDetails').open).toBe(false);
+});
+
+test('traps format-picker focus and excludes collapsed options from keyboard navigation', () => {
+    dialogs.openFilenameModal(1, null, 'trail.gpx');
+    const radio = document.querySelector('input[value="kml"]'); radio.click(); radio.focus();
+    radio.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+    expect(document.activeElement.id).toBe('confirmFilenameBtn');
+    key('confirmFilenameBtn', 'Tab');
+    expect(document.activeElement).toBe(radio);
+    element('exportDetails').open = true;
+    key('confirmFilenameBtn', 'Escape');
+    expect(dialogs.isOpen()).toBe(false);
+});
+
+test('uses a format-specific default when the filename is blank', () => {
+    dialogs.openFilenameModal(1, null, 'trail.gpx');
+    element('filenameInput').value = ' ';
+    document.querySelector('input[value="kml"]').click();
+    expect(element('filenamePreview').textContent).toBe('trail.kml');
+    element('confirmFilenameBtn').click();
+    expect(downloadFile.mock.calls[0][1]).toBe('trail.kml');
+});
+
+test('handles a deleted route and keeps the dialog open after an invalid export', () => {
+    dialogs.openFilenameModal(1); routes = []; element('confirmFilenameBtn').click();
+    expect(downloadFile).not.toHaveBeenCalled();
+    expect(showStatus).toHaveBeenLastCalledWith(expect.stringContaining('no longer available'), true);
+    routes = [{ id: 1, coordinates: [[1, 2]] }];
+    dialogs.openFilenameModal(1); element('confirmFilenameBtn').click();
+    expect(dialogs.isOpen()).toBe(true);
+    expect(showStatus).toHaveBeenLastCalledWith(expect.stringContaining('Download failed'), true);
+    expect(element('exportError').textContent).toContain('two valid points');
+});
+
+test('TCX exposes the required time choice, blocks incomplete times, and resets consent on reopen', () => {
+    dialogs.openFilenameModal(1, null, 'trail.gpx');
+    document.querySelector('input[value="tcx"]').click();
+    expect(element('confirmFilenameBtn').disabled).toBe(true);
+    expect(element('exportError').hidden).toBe(false);
+    expect(element('exportTimestampOption').parentElement.id).toBe('exportRequiredOptions');
+    expect(element('exportDetails').open).toBe(false);
+    element('synthesizeTimes').click();
+    expect(element('confirmFilenameBtn').disabled).toBe(false);
+    expect(element('exportError').hidden).toBe(true);
+    element('confirmFilenameBtn').click();
+    expect(downloadFile).toHaveBeenCalledWith(expect.stringContaining('<Courses><Course>'), 'trail.tcx', 'application/vnd.garmin.tcx+xml');
+    const xml = new DOMParser().parseFromString(downloadFile.mock.calls[0][0], 'application/xml');
+    expect(xml.querySelectorAll('Time')).toHaveLength(2);
+    dialogs.openFilenameModal(1, null, 'trail.gpx');
+    expect(element('synthesizeTimes').checked).toBe(false);
+    document.querySelector('input[value="tcx"]').click();
+    expect(element('confirmFilenameBtn').disabled).toBe(true);
+    document.querySelector('input[value="csv"]').click();
+    expect(element('confirmFilenameBtn').disabled).toBe(false);
+    expect(element('exportTimestampOption').hidden).toBe(true);
+});
+
+test('TCX preserves complete recorded times without asking for generated times', () => {
+    routes[0].times = ['2020-01-01T00:00:00Z', '2020-01-01T00:01:00Z'];
+    dialogs.openFilenameModal(1, null, 'trail.gpx');
+    document.querySelector('input[value="tcx"]').click();
+    expect(element('confirmFilenameBtn').disabled).toBe(false);
+    element('confirmFilenameBtn').click();
+    expect(downloadFile.mock.calls[0][0]).toContain('2020-01-01T00:00:00.000Z');
+    expect(downloadFile.mock.calls[0][0]).not.toContain('generated estimates');
+});
+
+test('filename editing preserves an export error until the user changes export options', () => {
+    dialogs.openFilenameModal(1);
+    document.querySelector('input[value="tcx"]').click();
+    element('filenameInput').value = 'Changed'; element('filenameInput').dispatchEvent(new Event('input'));
+    expect(element('exportError').hidden).toBe(false);
+    expect(element('confirmFilenameBtn').disabled).toBe(true);
+});
+
+test.each(['gpx', 'tcx'])('%s keeps keyboard focus on the time checkbox after a change', format => {
+    dialogs.openFilenameModal(1);
+    document.querySelector(`input[value="${format}"]`).click();
+    element('exportDetails').open = true;
+    element('synthesizeTimes').focus(); element('synthesizeTimes').click();
+    expect(document.activeElement.id).toBe('synthesizeTimes');
+});
+
 test('removes saved keys and handles empty and unavailable tab storage', () => {
     localStorage.setItem('route2gpx_apiKey', 'old'); dialogs.openApiKeyModal();
     expect(element('rememberApiKey').checked).toBe(true);
