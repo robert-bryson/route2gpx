@@ -15,6 +15,7 @@
 | `route-map.js` | Own route layers by ID, marker labels, visibility, styling, hover, popup placement, and cleanup. |
 | `route-list.js` | Own route rows, row focus recovery, delegated row interaction, hover scrolling, and popup presentation. |
 | `app-dialogs.js` | Own dialog state, keyboard handling, focus recovery, API-key storage, rename input, and download confirmation. |
+| `analytics.js` | Send bounded, privacy-filtered usage events and Web Vitals without blocking app actions. |
 | `fog.js` | Parse and render the separate Fog of World overlay. Receive app services through setup. |
 
 `createRouteList` receives formatting and action callbacks. It exposes `render`, `highlight`, and `popup`. The coordinator changes route data and map layers in response to those callbacks. Rows do not retain their own route collection.

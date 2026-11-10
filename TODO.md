@@ -7,6 +7,7 @@ The [export review](docs/reviews/2026-11-03-export-review.md) records the latest
 - [ ] Confirm routing-provider agreement fit for the CARTO map, route storage, and GPX export. Define retention by data source.
 - [ ] Verify authenticated Routes and Geocoding calls and key restrictions on the deployed HTTPS origin.
 - [ ] Check deployed CSP and cache headers after deployment. Local build tests do not verify hosting configuration.
+- [ ] Verify the Umami tag, import outcomes, and generated export events in Cloud. Follow the [analytics guide](docs/umami-analytics.md). Confirm no private values appear.
 - [ ] Confirm that Amplify installs `libatomic` and completes a build with Node 26.12.0. The local Docker daemon was unavailable for the AL2023 check.
 
 ## Maintenance and verification

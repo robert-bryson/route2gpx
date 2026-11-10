@@ -14,7 +14,7 @@ customHeaders:
       - key: Permissions-Policy
         value: geolocation=(self), camera=(), microphone=()
       - key: Content-Security-Policy
-        value: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://*.basemaps.cartocdn.com; connect-src 'self' https://routes.googleapis.com https://maps.googleapis.com; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        value: "default-src 'self'; script-src 'self' https://cloud.umami.is; style-src 'self'; img-src 'self' data: https://*.basemaps.cartocdn.com; connect-src 'self' https://routes.googleapis.com https://maps.googleapis.com https://gateway.umami.is; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
   - pattern: '*.js'
     headers:
       - key: Cache-Control

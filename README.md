@@ -80,6 +80,12 @@ Use **Remove key** to delete a key. If removal or a storage change fails, the di
 
 Before deployment, confirm that your routing agreement permits the selected map, storage period, and GPX export. The app records route source and creation time but does not enforce a retention period. See the [provider decision in the review](docs/reviews/2026-11-02-project-review.md#provider-fit-comes-before-a-routing-fallback).
 
+## Usage analytics
+
+Production loads Umami Cloud only on `route2gpx.rsmb.tv`. It uses the shared portfolio property and the `route2gpx` tag. Local and preview hosts do not load the tracker.
+
+Events record import outcomes, route calculation outcomes, and generated exports. Event data does not contain API keys, route coordinates, filenames, or file contents. The tracker respects Do Not Track, Global Privacy Control, and local opt-out. See the [analytics guide](docs/umami-analytics.md) for the event contract and deployment checks.
+
 ## Develop the web app
 
 Use a Node version supported by the locked dependencies:

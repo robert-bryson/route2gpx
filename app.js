@@ -12,6 +12,10 @@ import { canUseImportWorker, readInWorker } from './import-client.js';
 import { createRouteMap } from './route-map.js';
 import { setupFogOfWorld } from './fog.js';
 import { iconSvg, renderIconPlaceholders } from './icons.js';
+import { EXPORT_FORMATS } from './route-export.js';
+import { analyticsResultBucket, initializeAnalytics, trackAnalyticsEvent } from './analytics.js';
+
+initializeAnalytics();
 
 // ============ State ============
 let routes = [];
@@ -1405,6 +1409,7 @@ async function getRoute() {
         request.departureTime = date.toISOString();
     }
     const controller = new AbortController();
+    let analyticsOutcome = 'error';
     routeRequestController = controller;
     const btn = document.getElementById('getRouteBtn');
     btn.disabled = true;
@@ -1453,6 +1458,7 @@ async function getRoute() {
         renderRoutesList();
         updateBulkButtons();
         if (!saveToStorage()) setMobileView('planner');
+        analyticsOutcome = 'success';
         showStatus(`Route added: ${formatDistance(distance)}, ${formatDuration(duration)}. Edit, add, or reorder points to create another route.`);
         exitClickMode();
 
@@ -1468,6 +1474,8 @@ async function getRoute() {
     } catch (error) {
         showStatus(error.name === 'AbortError' ? 'Route calculation cancelled.' : error.message, error.name !== 'AbortError');
     } finally {
+        if (controller.signal.aborted) analyticsOutcome = 'cancelled';
+        trackAnalyticsEvent('route-calculation-finished', { outcome: analyticsOutcome, mode: travelMode });
         if (routeRequestController === controller) routeRequestController = null;
         btn.disabled = false;
         btn.removeAttribute('aria-busy');
@@ -1657,6 +1665,7 @@ async function downloadAllRoutes() {
         a.click();
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+        trackAnalyticsEvent('export-generated', { format: 'zip', routeCount: analyticsResultBucket(snapshot.length) });
         showStatus(`Downloaded ${snapshot.length} routes as ZIP. See ZIP export data for elevation and time coverage.`);
     } catch (error) {
         console.warn('ZIP download unavailable, falling back to sequential GPX downloads:', error.message);
@@ -1682,6 +1691,8 @@ function downloadFile(content, filename, mimeType) {
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const format = Object.keys(EXPORT_FORMATS).find(key => EXPORT_FORMATS[key].mimeType === mimeType);
+    if (format) trackAnalyticsEvent('export-generated', { format, routeCount: '1' });
 }
 
 // ============ Elevation Data (Open-Topo-Data) ============
@@ -1806,10 +1817,14 @@ async function handleImportFiles(files) {
             showStatus(`Importing ${file.name}...`);
             const { added, diagnostics } = await handleSingleImportFile(file, { signal: controller.signal });
             imported++;
+            trackAnalyticsEvent('file-import-finished', { outcome: 'success', format: detectImportFormat(file.name)?.format ?? 'unsupported' });
             const warnings = importWarnings(diagnostics);
             hasWarnings ||= warnings.length > 0;
             outcomes.push(`${file.name}: imported ${added.length} track(s).${warnings.length ? ` ${warnings.join(' ')}` : ''}`);
-        } catch (error) { outcomes.push(`${file.name}: ${error.message}`); }
+        } catch (error) {
+            trackAnalyticsEvent('file-import-finished', { outcome: controller.signal.aborted ? 'cancelled' : 'error', format: detectImportFormat(file.name)?.format ?? 'unsupported' });
+            outcomes.push(`${file.name}: ${error.message}`);
+        }
         await new Promise(resolve => setTimeout(resolve, 0));
     }
     importController = null;

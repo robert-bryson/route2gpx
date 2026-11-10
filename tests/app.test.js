@@ -1,6 +1,8 @@
 /** Coordinator behavior through module actions and DOM events. */
 
 import { describe, test, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { trackAnalyticsEvent } from '../analytics.js';
+vi.mock('../analytics.js', async importOriginal => ({ ...await importOriginal(), initializeAnalytics: vi.fn(), trackAnalyticsEvent: vi.fn() }));
 import JSZip from 'jszip';
 import * as pako from 'pako';
 import { generateGPX, escapeXml, sanitizeFilename } from '../gpx.js';
@@ -713,6 +715,7 @@ describe('geolocation', () => {
 // ============ route creation form state ============
 describe('route creation form state', () => {
   test('keeps origin, destination, and waypoint values after creating a route', async () => {
+    vi.mocked(trackAnalyticsEvent).mockClear();
     const originalFetch = globalThis.fetch;
     document.getElementById('origin').value = 'Origin City';
     document.getElementById('destination').value = 'Destination City';
@@ -747,12 +750,15 @@ describe('route creation form state', () => {
       expect(document.getElementById('origin').value).toBe('Origin City');
       expect(document.getElementById('destination').value).toBe('Destination City');
       expect(appModule.getStops()).toEqual(['Scenic Stop']);
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('route-calculation-finished', { outcome: 'success', mode: 'DRIVE' });
+      expect(JSON.stringify(vi.mocked(trackAnalyticsEvent).mock.calls)).not.toMatch(/Origin City|Destination City|test-key/);
     } finally {
       globalThis.fetch = originalFetch;
     }
   });
 
   test('rejects API routes with invalid geometry before rendering', async () => {
+    vi.mocked(trackAnalyticsEvent).mockClear();
     const originalFetch = globalThis.fetch;
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => { });
     document.getElementById('origin').value = 'Origin City';
@@ -777,6 +783,7 @@ describe('route creation form state', () => {
     try {
       await appModule.getRoute();
       expect(document.getElementById('status').textContent).toContain('Route geometry was missing or invalid');
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('route-calculation-finished', { outcome: 'error', mode: 'DRIVE' });
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     } finally {
       globalThis.fetch = originalFetch;
@@ -1672,6 +1679,7 @@ describe('coordinator import and route actions', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
   test('retains partial successes and diagnostics for a mixed import batch', async () => {
+    vi.mocked(trackAnalyticsEvent).mockClear();
     const partial = source.replace('<trkpt lat="1"', '<trkpt/><trkpt lat="1"').replace('</gpx>', '<trk><trkseg><trkpt lat="5" lon="6"/></trkseg></trk></gpx>');
     setFiles([inputFile('partial.gpx', partial), inputFile('bad.txt')]);
     await vi.waitFor(() => expect(document.getElementById('importSummaryTitle').textContent).toBe('Imported 1 of 2 file(s)'));
@@ -1681,6 +1689,9 @@ describe('coordinator import and route actions', () => {
     expect(saved()).toHaveLength(1);
     expect(document.getElementById('cancelImportBtn').hidden).toBe(true);
     expect(document.querySelectorAll('#routesList .route-item')).toHaveLength(1);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('file-import-finished', { outcome: 'success', format: 'gpx' });
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('file-import-finished', { outcome: 'error', format: 'unsupported' });
+    expect(JSON.stringify(vi.mocked(trackAnalyticsEvent).mock.calls)).not.toMatch(/partial\.gpx|bad\.txt/);
   });
 
   test('rejects oversized batches before reading files', () => {
@@ -1691,6 +1702,7 @@ describe('coordinator import and route actions', () => {
   });
 
   test('cancels a pending file read and prevents concurrent imports', async () => {
+    vi.mocked(trackAnalyticsEvent).mockClear();
     let finish;
     const pending = { name: 'pending.gpx', size: 100, arrayBuffer: () => new Promise(resolve => { finish = resolve; }) };
     setFiles([inputFile('first.gpx'), pending, inputFile('never.gpx')]);
@@ -1701,6 +1713,7 @@ describe('coordinator import and route actions', () => {
     finish(new TextEncoder().encode(source).buffer);
     await vi.waitFor(() => expect(document.getElementById('importSummaryItems').textContent).toContain('Import cancelled. Completed tracks are retained.'));
     expect(saved()).toHaveLength(1);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('file-import-finished', { outcome: 'cancelled', format: 'gpx' });
   });
 
   test('parses gzip locally when no worker exists and rejects unusable tracks', async () => {
@@ -1735,6 +1748,7 @@ describe('coordinator import and route actions', () => {
   });
 
   test('exports one route through its dialog and multiple routes as distinct ZIP entries', async () => {
+    vi.mocked(trackAnalyticsEvent).mockClear();
     await appModule.handleSingleImportFile(inputFile('trail.gpx'));
     document.getElementById('downloadAllBtn').click();
     expect(document.getElementById('filenameModal').classList.contains('visible')).toBe(true);
@@ -1746,6 +1760,8 @@ describe('coordinator import and route actions', () => {
     await vi.waitFor(() => expect(downloads).toContain('routes.zip'));
     expect(write.mock.calls.filter(call => call.length > 1).map(([name]) => name)).toEqual(['imported_Trail.gpx', 'imported_Trail_2.gpx']);
     expect(document.getElementById('batchExportItems').children).toHaveLength(2);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('export-generated', { format: 'gpx', routeCount: '1' });
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('export-generated', { format: 'zip', routeCount: '2-10' });
   });
 
   test('falls back to individual exports if ZIP generation fails', async () => {
