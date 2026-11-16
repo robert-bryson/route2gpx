@@ -546,14 +546,14 @@ files = [
 
 [[package]]
 name = "polyline"
-version = "2.0.4"
+version = "2.0.5"
 description = "A Python implementation of Google's Encoded Polyline Algorithm Format."
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 files = [
-    {file = "polyline-2.0.4-py3-none-any.whl", hash = "sha256:a4e0c15b8ecb32915559f8cf210f1f8c2f5cc53d3cd32c91d7c1668d6e936e10"},
-    {file = "polyline-2.0.4.tar.gz", hash = "sha256:f05ade694522bf1720febebe1672f820f43a13c6a1664751e7769d47e8ca9b1b"},
+    {file = "polyline-2.0.5-py3-none-any.whl", hash = "sha256:dc3f4dbd83bbd7b2e6aec3d2980757f262c300fb739d68d43984da663d72bcc9"},
+    {file = "polyline-2.0.5.tar.gz", hash = "sha256:92deedee05d52918e83cf7607011ba1cc52907932e7228ba6e28f4a0a8c6370d"},
 ]
 
 [package.extras]
@@ -730,4 +730,4 @@ zstd = ["backports-zstd (>=1.0.0) ; python_version < \"3.14\""]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13"
-content-hash = "61f3572e77a14d5b844cf11785ee970f8895895e50725b0da3d3a8ae686659ca"
+content-hash = "586cbe09977df70cb7d5fb2de9d6bc6af53c171bd8c252319d29652987f8635f"
